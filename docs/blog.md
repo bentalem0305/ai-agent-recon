@@ -263,41 +263,13 @@ We laid out the pipeline as three logical jobs:
 | 3 | **OWASP Agentic AI Mapper** — map recon to ASI01..ASI10 | `owasp-mapping.json` |
 | 4 | **Attack Vector Generator** — emit safe test scenarios | `attack-vectors.json` |
 
-We had to make a foundational decision early: **should the LLM drive these phases, or should plain Python?**
+We had to make a foundational decision early: **should the LLM drive these phases, or should plain Python?** The honest answer turned out to be *both*, in a specific layered way that mirrors what Phase 1 already did.
 
-### The mistake we made first
+### The rule layer becomes the safety floor under the agents
 
-Our first cut was pure deterministic Python. We wrote rule functions like this:
+Here's the pattern we landed on:
 
-```python
-def _rule_asi02(caps: Capabilities) -> list[str]:
-    signals: list[str] = []
-    if caps.has_tools:
-        signals.append(f"has_tools=True (tools: {caps.tools})")
-    if caps.can_call_external_apis:
-        signals.append("can_call_external_apis=True")
-    if caps.has_mcp:
-        signals.append(f"has_mcp=True (servers: {caps.mcp_servers})")
-    if _has_write_tool(caps):
-        signals.append("tool inventory includes write/update/delete actions")
-    if not caps.has_human_approval and caps.has_tools:
-        signals.append("no human approval gate observed for tool use")
-    return signals
-```
-
-We wrote per-category attack-vector templates. We wrote a scoring formula. We wrote a Markdown renderer. The pipeline produced five output files. Tests passed. We thought we were done.
-
-The user (the project's actual owner) read our summary and asked the question that was obvious in retrospect:
-
-> *"do the OWASP Mapper, the Attack Vector Generator, the PT Team Manager are real CrewAI framework based ai agents or not? the whole idea is make the tool agent ai CrewAI framework base tool"*
-
-They were right. We had built a perfectly reasonable rule-based PT planner, but **the entire project's architecture is CrewAI-first**. Phase 1 is a CrewAI crew. The Phase 1 Classifier, Validator, and Reporter are CrewAI agents. The Phase 2-4 pipeline being pure Python wasn't a bug exactly — but it was an architectural inconsistency.
-
-### The lesson: the rule layer becomes the safety floor under the agents
-
-We could have thrown away the rule-based pipeline and written everything fresh as LLM prompts. We didn't. Here's the pattern that emerged:
-
-> **The rule-based code we wrote first stays. It's not the pipeline anymore — it's the safety floor under the pipeline.**
+> **A deterministic rule layer underneath, real CrewAI agents on top. The rules are not the pipeline — they are the safety floor under the pipeline.**
 
 Specifically, the rule-based `map_owasp(recon)` function still runs. Its output becomes a *baseline* that the LLM Mapper agent consumes through a tool:
 
@@ -431,8 +403,8 @@ There's also a more practical reason SupportMate matters in this story. The very
 
 If you want the full story of SupportMate — the hybrid pattern, the inject-auth tool wrappers, the LangGraph state machine, the per-session memory model, the prompt-injection defenses, and the async migration — both are written up at:
 
-- **[SupportMate's README](../../Customer%20Support%20Agent/customer-support-langgraph-agent/README.md)** — installation, architecture, authorization model, prompt-injection resistance, audit logging.
-- **[*LangGraph in Plain English: Building a Real AI Customer-Support Agent*](../../Customer%20Support%20Agent/customer-support-langgraph-agent/docs/blog.md)** — the companion blog. Friendly walk-through of LangGraph, ReAct, and the hybrid pattern, with the SupportMate code as the running example.
+- **[SupportMate's README](../customer-support-langgraph-agent/README.md)** — installation, architecture, authorization model, prompt-injection resistance, audit logging.
+- **[*LangGraph in Plain English: Building a Real AI Customer-Support Agent*](../customer-support-langgraph-agent/docs/blog.md)** — the companion blog. Friendly walk-through of LangGraph, ReAct, and the hybrid pattern, with the SupportMate code as the running example.
 
 We strongly recommend reading the SupportMate post alongside this one. It's the *target side* of every story we've told here — what the agent looks like from inside, while this post is what it looks like from outside through a recon tool's eyes.
 
@@ -493,5 +465,5 @@ Happy probing. 🕵️🤖
 - [OWASP Top 10 for Agentic AI](https://www.promptfoo.dev/docs/red-team/owasp-agentic-ai/) — the taxonomy we map to in Phases 2-4.
 - [`docs/pt-team-workflow.md`](./pt-team-workflow.md) — the operational guide to the PT planning pipeline.
 - **The SupportMate companion project — the agent we tested everything against:**
-  - [SupportMate's README](../../Customer%20Support%20Agent/customer-support-langgraph-agent/README.md) — architecture, authorization model, prompt-injection resistance, audit logging.
-  - [*LangGraph in Plain English: Building a Real AI Customer-Support Agent*](../../Customer%20Support%20Agent/customer-support-langgraph-agent/docs/blog.md) — the companion blog that walks through the hybrid workflow + ReAct pattern, the inject-auth tool wrappers, the LangGraph state machine, and the per-session memory model — i.e. the *target side* of every story in this post.
+  - [SupportMate's README](../customer-support-langgraph-agent/README.md) — architecture, authorization model, prompt-injection resistance, audit logging.
+  - [*LangGraph in Plain English: Building a Real AI Customer-Support Agent*](../customer-support-langgraph-agent/docs/blog.md) — the companion blog that walks through the hybrid workflow + ReAct pattern, the inject-auth tool wrappers, the LangGraph state machine, and the per-session memory model — i.e. the *target side* of every story in this post.
