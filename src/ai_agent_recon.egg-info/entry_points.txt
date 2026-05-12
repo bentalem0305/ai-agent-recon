@@ -1,0 +1,2 @@
+[console_scripts]
+agent-recon = agent_recon.main:app

@@ -1,0 +1,37 @@
+{
+  "target": {
+    "name": "customer-support-agent",
+    "type": "customer-support-agent",
+    "description": "Customer-support assistant with read/write tools and an approval gate for some actions."
+  },
+  "capabilities": {
+    "has_tools": true,
+    "tools": [
+      "lookup_order_status",
+      "lookup_customer_profile",
+      "create_support_ticket",
+      "send_notification_email",
+      "update_customer_record"
+    ],
+    "has_mcp": false,
+    "mcp_servers": [],
+    "has_memory": false,
+    "memory_type": "unknown",
+    "has_rag": false,
+    "rag_sources": [],
+    "can_execute_code": false,
+    "can_call_external_apis": true,
+    "can_send_emails": true,
+    "can_access_files": false,
+    "can_modify_data": true,
+    "can_create_or_update_records": true,
+    "has_human_approval": true,
+    "approval_required_for": ["refund_processing", "account_status_change"],
+    "multi_agent": false,
+    "agents": [],
+    "identity_model": "user-delegated",
+    "permission_scope": "medium"
+  },
+  "observations": ["tools cover read + write + send actions; approval claimed for refunds"],
+  "raw_recon": {}
+}

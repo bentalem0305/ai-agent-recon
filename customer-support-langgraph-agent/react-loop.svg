@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 540"
+     font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#475569"/>
+    </marker>
+    <marker id="arrow-green" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#10b981"/>
+    </marker>
+    <filter id="soft" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="1.5" flood-opacity="0.10"/>
+    </filter>
+  </defs>
+
+  <rect width="800" height="540" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="400" y="36" text-anchor="middle" font-size="20" font-weight="700" fill="#0f172a">
+    Inside the react_agent — the ReAct Loop
+  </text>
+  <text x="400" y="58" text-anchor="middle" font-size="13" fill="#64748b">
+    Reason + Act: the LLM picks tools, sees results, decides again, then replies
+  </text>
+
+  <!-- Input -->
+  <g filter="url(#soft)">
+    <rect x="60" y="95" width="280" height="70" rx="8" fill="#f1f5f9" stroke="#475569" stroke-width="1.5"/>
+    <text x="200" y="119" text-anchor="middle" font-size="13" font-weight="700" fill="#0f172a">Input to the loop</text>
+    <text x="200" y="137" text-anchor="middle" font-size="11" fill="#475569">System prompt</text>
+    <text x="200" y="151" text-anchor="middle" font-size="11" fill="#475569">+ user message + session recap</text>
+  </g>
+
+  <!-- arrow Input → LLM -->
+  <line x1="340" y1="130" x2="378" y2="130" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- LLM box (central) -->
+  <g filter="url(#soft)">
+    <rect x="380" y="95" width="260" height="80" rx="10" fill="#d1fae5" stroke="#10b981" stroke-width="2.5"/>
+    <text x="510" y="123" text-anchor="middle" font-size="16" font-weight="800" fill="#064e3b">LLM</text>
+    <text x="510" y="143" text-anchor="middle" font-size="11" fill="#065f46">chat.bind_tools([...])</text>
+    <text x="510" y="160" text-anchor="middle" font-size="11" fill="#065f46">decides: call a tool, or reply?</text>
+  </g>
+
+  <!-- Decision diamond -->
+  <g filter="url(#soft)">
+    <polygon points="510,210 615,260 510,310 405,260" fill="#f8fafc" stroke="#475569" stroke-width="1.5"/>
+    <text x="510" y="257" text-anchor="middle" font-size="12" font-weight="700" fill="#0f172a">tool_calls in</text>
+    <text x="510" y="273" text-anchor="middle" font-size="12" font-weight="700" fill="#0f172a">LLM response?</text>
+  </g>
+
+  <!-- LLM → diamond -->
+  <line x1="510" y1="175" x2="510" y2="208" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+  <!-- yes → tools -->
+  <path d="M 615 260 L 705 260" fill="none" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="660" y="252" text-anchor="middle" font-size="11" font-weight="600" fill="#64748b">YES</text>
+
+  <!-- no → final reply -->
+  <line x1="510" y1="310" x2="510" y2="380" stroke="#475569" stroke-width="1.5" marker-end="url(#arrow)"/>
+  <text x="525" y="350" font-size="11" font-weight="600" fill="#64748b">NO</text>
+
+  <!-- TOOLS box -->
+  <g filter="url(#soft)">
+    <rect x="585" y="190" width="170" height="140" rx="10" fill="#fef3c7" stroke="#d97706" stroke-width="2"/>
+    <text x="670" y="212" text-anchor="middle" font-size="13" font-weight="700" fill="#78350f">TOOLS</text>
+    <text x="670" y="232" text-anchor="middle" font-size="10" fill="#7c2d12">lookup_order_status</text>
+    <text x="670" y="246" text-anchor="middle" font-size="10" fill="#7c2d12">lookup_customer_profile</text>
+    <text x="670" y="260" text-anchor="middle" font-size="10" fill="#7c2d12">create_support_ticket</text>
+    <text x="670" y="274" text-anchor="middle" font-size="10" fill="#7c2d12">get_refund_policy</text>
+    <text x="670" y="288" text-anchor="middle" font-size="10" fill="#7c2d12">get_shipping_policy</text>
+    <text x="670" y="302" text-anchor="middle" font-size="10" fill="#7c2d12">get_subscription_plan_info</text>
+    <text x="670" y="316" text-anchor="middle" font-size="10" fill="#7c2d12">retrieve_kb</text>
+  </g>
+
+  <!-- Tools result → LLM (loop back) -->
+  <path d="M 670 190 Q 670 70 510 92" fill="none" stroke="#10b981" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arrow-green)"/>
+  <text x="610" y="80" font-size="11" font-weight="600" fill="#10b981">tool results appended</text>
+
+  <!-- Final reply box -->
+  <g filter="url(#soft)">
+    <rect x="370" y="383" width="280" height="60" rx="8" fill="#dbeafe" stroke="#475569" stroke-width="1.5"/>
+    <text x="510" y="407" text-anchor="middle" font-size="14" font-weight="700" fill="#0f172a">Final natural-language reply</text>
+    <text x="510" y="425" text-anchor="middle" font-size="11" fill="#475569">passed back to the outer graph</text>
+  </g>
+
+  <!-- Footer -->
+  <text x="400" y="485" text-anchor="middle" font-size="11" fill="#64748b">
+    Loop runs up to 5 iterations. Each tool wrapper closes over user_id + tenant_id,
+  </text>
+  <text x="400" y="502" text-anchor="middle" font-size="11" fill="#64748b">
+    so the LLM only sees user-controllable args and cannot spoof identity.
+  </text>
+
+</svg>

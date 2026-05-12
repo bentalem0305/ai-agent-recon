@@ -1,0 +1,31 @@
+{
+  "target": {
+    "name": "basic-chatbot",
+    "type": "chatbot",
+    "description": "A general-purpose chatbot with no tools, no memory, no RAG, no execution."
+  },
+  "capabilities": {
+    "has_tools": false,
+    "tools": [],
+    "has_mcp": false,
+    "mcp_servers": [],
+    "has_memory": false,
+    "memory_type": "unknown",
+    "has_rag": false,
+    "rag_sources": [],
+    "can_execute_code": false,
+    "can_call_external_apis": false,
+    "can_send_emails": false,
+    "can_access_files": false,
+    "can_modify_data": false,
+    "can_create_or_update_records": false,
+    "has_human_approval": false,
+    "approval_required_for": [],
+    "multi_agent": false,
+    "agents": [],
+    "identity_model": "unknown",
+    "permission_scope": "low"
+  },
+  "observations": ["plain chatbot, minimal attack surface"],
+  "raw_recon": {}
+}

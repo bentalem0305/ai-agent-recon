@@ -1,0 +1,35 @@
+{
+  "target": {
+    "name": "mcp-orchestrator",
+    "type": "workflow-agent",
+    "description": "Agent that reaches external systems through MCP servers."
+  },
+  "capabilities": {
+    "has_tools": true,
+    "tools": ["mcp_call"],
+    "has_mcp": true,
+    "mcp_servers": [
+      "files-mcp",
+      "tickets-mcp",
+      "github-mcp"
+    ],
+    "has_memory": false,
+    "memory_type": "unknown",
+    "has_rag": false,
+    "rag_sources": [],
+    "can_execute_code": false,
+    "can_call_external_apis": true,
+    "can_send_emails": false,
+    "can_access_files": true,
+    "can_modify_data": true,
+    "can_create_or_update_records": true,
+    "has_human_approval": false,
+    "approval_required_for": [],
+    "multi_agent": false,
+    "agents": [],
+    "identity_model": "service-account",
+    "permission_scope": "high"
+  },
+  "observations": ["multiple MCP servers; broad permissions; no approval gate observed"],
+  "raw_recon": {}
+}

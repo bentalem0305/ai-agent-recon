@@ -1,0 +1,26 @@
+app:
+  name: "SupportMate"
+  version: "1.0.0"
+  purpose: "LangGraph-based customer support AI agent."
+
+server:
+  host: "127.0.0.1"
+  port: 8000
+
+llm:
+  provider: "openai"             # only used when OPENAI_API_KEY is set
+  model: "gpt-4o-mini"
+  temperature: 0.2
+  max_tokens: 600
+
+memory:
+  store_path: "data/session_memory.json"
+  max_summary_chars: 800
+
+audit:
+  log_path: "logs/audit.jsonl"
+
+knowledge_base:
+  dir: "data/knowledge_base"
+  max_snippets: 3
+  snippet_chars: 600

@@ -1,0 +1,2 @@
+[console_scripts]
+supportmate = supportmate.main:app

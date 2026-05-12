@@ -1,0 +1,11 @@
+[
+  {
+    "ticket_id": "TKT-55D5A250",
+    "user_id": "user_001",
+    "tenant_id": "tenant_a",
+    "category": "escalation",
+    "summary": "Human-support escalation: I want to speak with a human agent please.",
+    "status": "open",
+    "created_at": "2026-05-11T14:29:45.798729+00:00"
+  }
+]

@@ -1,0 +1,34 @@
+{
+  "target": {
+    "name": "knowledge-assistant",
+    "type": "workflow-agent",
+    "description": "RAG-enabled assistant with long-term, cross-session memory."
+  },
+  "capabilities": {
+    "has_tools": true,
+    "tools": ["retrieve_kb", "store_user_fact"],
+    "has_mcp": false,
+    "mcp_servers": [],
+    "has_memory": true,
+    "memory_type": "long-term",
+    "has_rag": true,
+    "rag_sources": [
+      "internal-docs-vector-db",
+      "public-help-center"
+    ],
+    "can_execute_code": false,
+    "can_call_external_apis": true,
+    "can_send_emails": false,
+    "can_access_files": false,
+    "can_modify_data": false,
+    "can_create_or_update_records": false,
+    "has_human_approval": false,
+    "approval_required_for": [],
+    "multi_agent": false,
+    "agents": [],
+    "identity_model": "user-delegated",
+    "permission_scope": "medium"
+  },
+  "observations": ["RAG + long-term memory: prime ground for context poisoning"],
+  "raw_recon": {}
+}

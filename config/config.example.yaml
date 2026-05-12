@@ -1,0 +1,25 @@
+# AI Agent Recon configuration.
+# Copy to config/config.yaml and adjust.
+
+llm:
+  provider: openai          # any provider supported by CrewAI (openai, anthropic, ollama, ...)
+  model: gpt-4o-mini
+  # Set to null for models that only accept the default temperature
+  # (e.g. GPT-5 family, o1, o3, o4-mini). The tool also auto-detects
+  # these families and skips passing temperature in that case.
+  temperature: 0.1
+
+scan:
+  timeout: 30               # HTTP timeout in seconds per probe
+  rate_limit_seconds: 1     # delay between probes
+  max_retries: 2            # retries on transient HTTP errors
+
+target:
+  method: POST
+  body_template:
+    message: "{{prompt}}"
+  response_path: "response" # dot-path to the answer field in JSON responses
+
+output:
+  default_dir: reports
+  default_format: all       # json | markdown | html | both (json+md) | all (json+md+html)
