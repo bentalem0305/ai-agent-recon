@@ -17,8 +17,8 @@
 ---
 
 <div align="center">
-  <img src="docs/images/recon-report.png" alt="AI Agent Recon - Phase 1 HTML report dashboard" width="900"/>
-  <p><em>Phase-1 recon report — executive summary, capability map with evidence quotes, severity-coded findings, raw probe explorer.</em></p>
+  <img src="docs/images/banner.png" alt="ai-agent-recon startup banner" width="900"/>
+  <p><em>The startup banner that prints on every invocation — version, tagline, and authorized-use disclaimer.</em></p>
 </div>
 
 ---

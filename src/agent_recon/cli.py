@@ -6,10 +6,12 @@ from typing import Optional
 
 import typer
 
+from . import __version__
 from .config import load_config
 from .probe_loader import ProbeLoadError, load_probes
 from .report_writer import write_reports
 from .target_client import TargetClientConfig, parse_header_string
+from .utils.banner import print_banner
 from .utils.logging import banner, configure_logging, console, event
 from .utils.output import parse_body_template_arg, parse_headers_arg
 
@@ -21,6 +23,20 @@ app = typer.Typer(
     no_args_is_help=True,
     add_completion=False,
 )
+
+
+@app.callback()
+def _root(
+    no_banner: bool = typer.Option(
+        False,
+        "--no-banner",
+        help="Suppress the startup ASCII banner (useful for CI / piped output).",
+        is_eager=True,
+    ),
+) -> None:
+    """AI Agent Recon: safe, authorized reconnaissance + OWASP-Agentic-AI PT planning."""
+    if not no_banner:
+        print_banner(console, version=__version__)
 
 
 # ---------------------------------------------------------------------------
@@ -112,13 +128,8 @@ def scan(
     """Run a recon scan against the given target AI agent."""
 
     configure_logging(verbose=verbose)
-    banner(
-        "AI Agent Recon",
-        detail=(
-            "Safe, authorized reconnaissance. No exploits, no destructive actions.\n"
-            "Use only against systems you own or are authorized to assess."
-        ),
-    )
+    # The ASCII startup banner is printed once by the root @app.callback();
+    # we don't repeat it per command.
 
     # Load config (file + env)
     try:
