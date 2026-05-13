@@ -243,6 +243,13 @@ pip install -e .
 pip install -r requirements.txt
 ```
 
+After `pip install -e .` the **`ai-agent-recon`** command (and short alias **`aar`**) becomes available on your PATH whenever the venv is active — so every example below can be run as `ai-agent-recon scan ...` instead of `python -m agent_recon.main scan ...`.
+
+```bash
+# Quick smoke test — should print the ASCII banner + version line.
+ai-agent-recon version
+```
+
 ---
 
 ## 🔧 Configuration
@@ -285,7 +292,7 @@ The LLM provider is swappable to any CrewAI-supported provider. The PT planning 
 ### Phase 1: Reconnaissance
 
 ```bash
-python -m agent_recon.main scan \
+ai-agent-recon scan \
   --target-url "http://localhost:8000/chat" \
   --method POST \
   --auth-header "Authorization: Bearer TOKEN" \
@@ -320,20 +327,20 @@ python -m agent_recon.main scan \
 
 ```bash
 # Full pipeline (CrewAI + deterministic safety floors) → 6 files
-python -m agent_recon.main pt-plan \
+ai-agent-recon pt-plan \
   --input reports/ai_agent_recon_<timestamp>.json \
   --output pt-output/
 
 # Pure rule-based — no LLM calls, fully reproducible
-python -m agent_recon.main pt-plan \
+ai-agent-recon pt-plan \
   --input samples/recon_code_execution_agent.json \
   --output pt-output/ \
   --no-llm
 
 # Single-phase commands
-python -m agent_recon.main owasp-map      --input recon.json --output mapping.json
-python -m agent_recon.main generate-tests --input recon.json --output attack-vectors.json
-python -m agent_recon.main pt-report      --input recon.json --output report.md
+ai-agent-recon owasp-map      --input recon.json --output mapping.json
+ai-agent-recon generate-tests --input recon.json --output attack-vectors.json
+ai-agent-recon pt-report      --input recon.json --output report.md
 ```
 
 > ℹ The input file is auto-detected: a top-level `target.type` field is the canonical `NormalizedRecon` shape; a top-level `classification` field is a Phase-1 `FinalReport` and is adapted automatically.
@@ -341,7 +348,7 @@ python -m agent_recon.main pt-report      --input recon.json --output report.md
 ### Other commands
 
 ```bash
-python -m agent_recon.main version
+ai-agent-recon version
 ```
 
 ---
@@ -394,8 +401,8 @@ A tiny FastAPI app that exposes a `/chat` endpoint and pretends to be an AI agen
 python examples/demo_target.py
 
 # Terminal 2 — scan + plan against it
-python -m agent_recon.main scan --target-url http://localhost:8000/chat --output-dir reports
-python -m agent_recon.main pt-plan --input reports/ai_agent_recon_<latest>.json --output pt-output/
+ai-agent-recon scan --target-url http://localhost:8000/chat --output-dir reports
+ai-agent-recon pt-plan --input reports/ai_agent_recon_<latest>.json --output pt-output/
 ```
 
 Toggle the demo's persona at startup:
@@ -439,13 +446,13 @@ supportmate serve --host 127.0.0.1 --port 8000
 
 ```bash
 # from the repo root, in another terminal
-python -m agent_recon.main scan \
+ai-agent-recon scan \
   --target-url http://127.0.0.1:8000/chat \
   --body-template '{"message": "{{prompt}}", "session_id": "recon-s1", "user_id": "user_001", "tenant_id": "tenant_a"}' \
   --response-path 'response' \
   --output-dir reports
 
-python -m agent_recon.main pt-plan \
+ai-agent-recon pt-plan \
   --input reports/ai_agent_recon_<latest>.json \
   --output pt-output/
 ```
