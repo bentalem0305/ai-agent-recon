@@ -36,7 +36,13 @@ demo = ["fastapi>=0.110", "uvicorn>=0.29"]
 test = ["pytest>=8.0"]
 
 [project.scripts]
-agent-recon = "agent_recon.main:app"
+# Primary CLI command. After `pip install -e .` this becomes available as
+# `ai-agent-recon` on PATH (a Windows .exe shim or Linux/macOS script).
+# Points at `main()` rather than the Typer `app` instance directly so the
+# UTF-8 stdout reconfigure in main.py runs before the banner is printed.
+ai-agent-recon = "agent_recon.main:main"
+# Short alias for power users / scripting.
+aar = "agent_recon.main:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
