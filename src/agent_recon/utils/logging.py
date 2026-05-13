@@ -40,9 +40,30 @@ def configure_logging(verbose: bool = False) -> None:
         force=True,
     )
 
-    # Silence noisy third-party libraries unless verbose.
+    # Silence noisy third-party libraries unless verbose. These emit
+    # INFO-level chatter that obscures our own [scan]/[pt-*] event lines:
+    #   - httpx/httpcore/urllib3: per-request HTTP logging
+    #   - openai/litellm/LiteLLM: SDK-level call accounting
+    #   - crewai*: "Using config path: ..." and "OpenAI: Successfully
+    #     validated tool 'X'" (one line per tool per validation pass)
     if not verbose:
-        for noisy in ("httpx", "httpcore", "urllib3", "openai", "litellm"):
+        for noisy in (
+            "httpx",
+            "httpcore",
+            "urllib3",
+            "openai",
+            "litellm",
+            "LiteLLM",
+            "crewai",
+            "crewai.tools",
+            "crewai.utilities",
+            "crewai.llms",
+            "crewai.llms.providers",
+            "crewai.llms.providers.openai",
+            "crewai.agents",
+            "crewai.crew",
+            "crewai.task",
+        ):
             logging.getLogger(noisy).setLevel(logging.WARNING)
 
 

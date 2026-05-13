@@ -13,6 +13,7 @@ parses arguments.
 from __future__ import annotations
 
 import sys
+import warnings
 
 # Force UTF-8 on stdout/stderr at process start. ``reconfigure`` exists
 # on Python 3.7+. ``errors='replace'`` guarantees we never crash even
@@ -22,6 +23,24 @@ for _stream in (sys.stdout, sys.stderr):
         _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
     except Exception:  # pragma: no cover - tolerate non-TextIO streams
         pass
+
+# Filter cosmetic library warnings BEFORE any module that triggers them
+# is imported. These are not actionable for our users:
+#   - pydantic's "function callbacks cannot be serialized..." UserWarning
+#     fires every time we pass a closure as a CrewAI step/task callback.
+#     The callbacks don't need to survive checkpointing for our use case.
+warnings.filterwarnings(
+    "ignore",
+    message=r".*function callbacks cannot be serialized.*",
+    category=UserWarning,
+)
+# Additional generic muffler: ignore any UserWarning emitted from pydantic's
+# main module so future cosmetic warnings don't sneak through either.
+warnings.filterwarnings(
+    "ignore",
+    category=UserWarning,
+    module=r"pydantic\.main",
+)
 
 from .cli import app  # noqa: E402  (must come after the UTF-8 reconfigure)
 

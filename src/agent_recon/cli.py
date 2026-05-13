@@ -35,6 +35,10 @@ def _root(
     ),
 ) -> None:
     """AI Agent Recon: safe, authorized reconnaissance + OWASP-Agentic-AI PT planning."""
+    # Silence noisy third-party loggers (CrewAI / litellm / httpx / openai SDK).
+    # This runs for EVERY subcommand (scan, pt-plan, owasp-map, ...). The
+    # `scan` command re-applies it with verbose=True if --verbose is passed.
+    configure_logging(verbose=False)
     if not no_banner:
         print_banner(console, version=__version__)
 

@@ -85,26 +85,50 @@ def run_pt_pipeline(
     # ---- Phase 2: choose mode + run ---------------------------------------
     if use_llm:
         cfg = app_config or load_config(None)
-        try:
-            from .crew.crew_runner import run_pt_crew
 
-            crew_result = run_pt_crew(recon, cfg)
-            mapping = crew_result.mapping
-            vectors = crew_result.vectors
-            summary = crew_result.summary
-            assignments = crew_result.assignments
-            mode = "llm"
-        except Exception as e:
-            # Defensive: run_pt_crew has its own internal fallback. This
-            # outer catch handles cases where the crew module itself fails
-            # to import.
+        # Pre-flight: confirm the configured LLM has credentials before
+        # invoking CrewAI. If not, auto-fall back to rule-based mode with
+        # a clean one-line warning instead of letting CrewAI fail
+        # mid-kickoff with a ~200-line traceback.
+        from ..utils.llm_check import check_llm_available
+
+        llm_check = check_llm_available(cfg.llm)
+        if not llm_check.available:
             event(
                 "[pt]",
-                f"Crew module unavailable ({e!r}); switching to rule-based.",
+                f"⚠  LLM credentials missing: {llm_check.reason}.",
+                style="warn",
+            )
+            event(
+                "[pt]",
+                f"   Auto-falling back to rule-based mode. To enable the CrewAI "
+                f"pipeline, set {llm_check.env_var} in your environment or .env "
+                f"file. Pass --no-llm to suppress this notice.",
                 style="warn",
             )
             mapping, vectors, summary, assignments = _rule_based_with_logs(recon)
             mode = "rule-based"
+        else:
+            try:
+                from .crew.crew_runner import run_pt_crew
+
+                crew_result = run_pt_crew(recon, cfg)
+                mapping = crew_result.mapping
+                vectors = crew_result.vectors
+                summary = crew_result.summary
+                assignments = crew_result.assignments
+                mode = "llm"
+            except Exception as e:
+                # Defensive: run_pt_crew has its own internal fallback.
+                # This outer catch handles cases where the crew module
+                # itself fails to import.
+                event(
+                    "[pt]",
+                    f"Crew module unavailable ({e!r}); switching to rule-based.",
+                    style="warn",
+                )
+                mapping, vectors, summary, assignments = _rule_based_with_logs(recon)
+                mode = "rule-based"
     else:
         mapping, vectors, summary, assignments = _rule_based_with_logs(recon)
         mode = "rule-based"

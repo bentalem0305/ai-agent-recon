@@ -127,6 +127,35 @@ class CrewRunner:
                 "crewai is not installed. Install requirements first: pip install -r requirements.txt"
             )
 
+        # ------------------------------------------------------------------
+        # Pre-flight: confirm the configured LLM has credentials.
+        # If not, run probes deterministically and produce a minimal report
+        # with a clear "no-LLM" notice. This prevents CrewAI from blowing
+        # up mid-kickoff with a ~200-line traceback.
+        # ------------------------------------------------------------------
+        from ..utils.llm_check import check_llm_available
+
+        llm_check = check_llm_available(self.app_config.llm)
+        if not llm_check.available:
+            event(
+                "[scan]",
+                f"⚠  LLM credentials missing: {llm_check.reason}.",
+                style="warn",
+            )
+            event(
+                "[scan]",
+                f"   Falling back to deterministic-only mode "
+                f"(probes will run, classifier/validator/reporter will be skipped).",
+                style="warn",
+            )
+            event(
+                "[scan]",
+                f"   To enable full analysis, set {llm_check.env_var} in your "
+                f"environment or .env file, then re-run.",
+                style="warn",
+            )
+            return self._run_deterministic_only(probes, missing_env_var=llm_check.env_var)
+
         toolset = build_probe_toolset(self.target_client, probes)
         llm = build_llm(self.app_config.llm)
 
@@ -168,6 +197,90 @@ class CrewRunner:
         )
 
         event("[scan]", "Scan complete.", style="ok")
+        return report
+
+    # ------------------------------------------------------------------
+    # Deterministic-only fallback (when no LLM credentials are configured)
+    # ------------------------------------------------------------------
+    def _run_deterministic_only(
+        self,
+        probes: list[Probe],
+        *,
+        missing_env_var: str | None = None,
+    ) -> FinalReport:
+        """Run probes via the safety net only; emit a minimal FinalReport.
+
+        Skips the analysis crew (Classifier / Validator / Reporter) and
+        instead returns a report with an explicit notice that the LLM
+        was unavailable. The raw probe results are still captured so a
+        human reviewer can inspect what the target said.
+        """
+        toolset = build_probe_toolset(self.target_client, probes)
+        self._run_safety_net(toolset.registry)
+
+        probe_results = toolset.registry.ordered_results()
+        error_count = sum(1 for r in probe_results if r.error)
+        event(
+            "[scan]",
+            f"Probing complete (deterministic-only). "
+            f"{len(probe_results)}/{len(probes)} responses, {error_count} errors.",
+            style="ok" if error_count == 0 else "warn",
+        )
+
+        target_info = TargetInfo(
+            url=self.target_client_config.url,
+            method=self.target_client_config.method,
+            response_path=self.target_client_config.response_path,
+        )
+
+        env_hint = (
+            f" Set {missing_env_var} in your environment or .env file to enable "
+            f"LLM-driven analysis."
+            if missing_env_var
+            else " Configure an LLM provider in .env to enable LLM-driven analysis."
+        )
+
+        summary = (
+            "Recon was run in deterministic-only mode because no LLM "
+            "credentials were configured. The raw probe responses are "
+            "included in this report, but no automatic classification, "
+            "validation, or summarisation was performed."
+            + env_hint
+        )
+
+        recommendations = [
+            "We recommend setting "
+            + (missing_env_var or "an LLM provider API key")
+            + " in your environment, then re-running the scan to get a full "
+            "classification, validation, and executive summary.",
+            "We recommend manually inspecting the raw probe responses in this "
+            "report to confirm the target agent's role, capabilities, and "
+            "boundaries before relying on it for higher-risk workflows.",
+            "We recommend re-running with --no-llm-style follow-up review if you "
+            "intentionally want a deterministic, reproducible scan (e.g. in CI).",
+        ]
+
+        report = FinalReport(
+            target=target_info,
+            probe_count=len(probe_results),
+            error_count=error_count,
+            summary=summary,
+            probe_results=probe_results,
+            classification=ClassificationResult(
+                uncertainty_notes=[
+                    "Classification was skipped — no LLM credentials available "
+                    "at scan time.",
+                ],
+            ),
+            validation=ValidationResult(
+                confidence_summary=(
+                    "Validation was skipped — no LLM credentials available at scan time."
+                ),
+            ),
+            recommendations=recommendations,
+        )
+
+        event("[scan]", "Scan complete (deterministic-only).", style="ok")
         return report
 
     # ------------------------------------------------------------------
