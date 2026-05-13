@@ -18,14 +18,35 @@ from rich.json import JSON
 from rich.panel import Panel
 from rich.table import Table
 
+from . import __version__
 from .audit import read_recent
 from .config import get_settings
 from .graph import run_once
 from .memory import reset_memory
 from .state import GraphState
+from .utils.banner import print_banner
+from .utils.logging import configure_logging
 
 app = typer.Typer(help="SupportMate - LangGraph-based customer support AI agent.", add_completion=False)
 console = Console()
+
+
+@app.callback()
+def _root(
+    no_banner: bool = typer.Option(
+        False,
+        "--no-banner",
+        help="Suppress the startup ASCII banner (useful for CI / piped output).",
+        is_eager=True,
+    ),
+) -> None:
+    """SupportMate: a LangGraph customer-support agent (workflow + ReAct hybrid)."""
+    # Configure logging once per invocation. Silences noisy third-party
+    # INFO chatter from LangChain / LangGraph / OpenAI / uvicorn so our
+    # own output stays readable.
+    configure_logging()
+    if not no_banner:
+        print_banner(console, version=__version__)
 
 
 @app.command("serve")

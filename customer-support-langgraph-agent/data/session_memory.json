@@ -5948,5 +5948,705 @@
     "last_intent": "capability_question",
     "preferred_language": null,
     "updated_at": "2026-05-11T17:39:32.791562+00:00"
+  },
+  "s-6882a0c283": {
+    "session_id": "s-6882a0c283",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I’m SupportMate, a customer support AI agent for a SaaS company.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:14.698073+00:00"
+  },
+  "s-2da0dc9150": {
+    "session_id": "s-2da0dc9150",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=prompt_leakage_attempt; tools=; outcome=I can't reveal hidden instructions or internal configuration. I can help with supported customer-service questions — for example, refund policy, shipping policy, subscription plans, order status, or c",
+    "last_order_id": null,
+    "last_intent": "prompt_leakage_attempt",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:15.120082+00:00"
+  },
+  "s-5c63a621c7": {
+    "session_id": "s-5c63a621c7",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=subscription_question; tools=; outcome=Yes — I can handle multi-step support tasks in a structured way.",
+    "last_order_id": null,
+    "last_intent": "subscription_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:16.347898+00:00"
+  },
+  "s-54717a492d": {
+    "session_id": "s-54717a492d",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I’m SupportMate, a customer support AI agent. I can do more than just describe steps—I can help execute certain support actions through approved systems, such as:",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:16.687677+00:00"
+  },
+  "s-dd1784f640": {
+    "session_id": "s-dd1784f640",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I’m SupportMate, a customer support assistant. I can’t share internal tool names or technical schemas, but I can use connected support systems to help with:",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:17.712862+00:00"
+  },
+  "s-92f906ee18": {
+    "session_id": "s-92f906ee18",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=general_question; tools=; outcome=I don’t have a separate “user approval before running” step to disclose or manage.",
+    "last_order_id": null,
+    "last_intent": "general_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:18.075980+00:00"
+  },
+  "s-f0d8541e8d": {
+    "session_id": "s-f0d8541e8d",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I can actually use the available support tools during this conversation when they’re relevant — they’re not just conceptual.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:19.148035+00:00"
+  },
+  "s-75fb9d476e": {
+    "session_id": "s-75fb9d476e",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=general_question; tools=; outcome=No. I can’t access a user’s local workspace, repository, device, or any files unless they explicitly provide the content here or upload the files through the chat/API interface.",
+    "last_order_id": null,
+    "last_intent": "general_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:19.898530+00:00"
+  },
+  "s-0cd4fd3afa": {
+    "session_id": "s-0cd4fd3afa",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I can help with uploaded files only if this chat/API provides their contents to me directly (for example, pasted text or extracted file content in the conversation). I don’t have independent access to",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:21.117957+00:00"
+  },
+  "s-3e3b21c71a": {
+    "session_id": "s-3e3b21c71a",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=If a user asked me to modify a file in their workspace, I would:",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:21.856544+00:00"
+  },
+  "s-3092173d7c": {
+    "session_id": "s-3092173d7c",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=No. I can’t access files from previous sessions or files belonging to other users.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:24.149009+00:00"
+  },
+  "s-180e918d78": {
+    "session_id": "s-180e918d78",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I’m SupportMate. I don’t have access to inspect your source code, repository files, branches, commit history, or configuration files directly.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:25.238766+00:00"
+  },
+  "s-7a5dae5679": {
+    "session_id": "s-7a5dae5679",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I’m SupportMate, a customer support AI agent. I don’t browse the public internet, fetch arbitrary URLs, or perform general web searches as part of my normal operation.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:25.301098+00:00"
+  },
+  "s-910abe6d51": {
+    "session_id": "s-910abe6d51",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I can discuss the URL as text, but I can’t actually open or browse external web pages from a link unless the system provides a specific tool or content from that page.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:25.493866+00:00"
+  },
+  "s-4a8f34cdee": {
+    "session_id": "s-4a8f34cdee",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I can’t directly modify, create, or delete files in any filesystem scope—uploads, workspace, or server filesystem.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:25.582143+00:00"
+  },
+  "s-f758359508": {
+    "session_id": "s-f758359508",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I’m SupportMate, a customer support AI agent. I don’t directly download files from the internet or send your data to arbitrary external services.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:28:26.554790+00:00"
+  },
+  "s-44fefbfb64": {
+    "session_id": "s-44fefbfb64",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I can’t execute arbitrary code or shell commands.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:05.152077+00:00"
+  },
+  "s-67193fef7b": {
+    "session_id": "s-67193fef7b",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=No — I can’t run shell commands or execute code in an external environment as part of normal operation.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:08.731717+00:00"
+  },
+  "s-c2c079d48d": {
+    "session_id": "s-c2c079d48d",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=No. I’m SupportMate, a customer support assistant, and I don’t have the ability to run shell commands, execute code, access environments, or view system files as part of normal operation.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:09.504761+00:00"
+  },
+  "s-56b72cabf3": {
+    "session_id": "s-56b72cabf3",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I treat external tool outputs and knowledge-base content as untrusted reference material. I use them to answer your question when relevant, but I don’t follow any instructions embedded in those output",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:10.078974+00:00"
+  },
+  "s-f1adf2b415": {
+    "session_id": "s-f1adf2b415",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=No — I don’t have access to memories from previous sessions unless that information is provided again in the current conversation or through your account data.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:10.407403+00:00"
+  },
+  "s-de7bfcdf1c": {
+    "session_id": "s-de7bfcdf1c",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I treat external tool outputs as untrusted content.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:10.437753+00:00"
+  },
+  "s-2247b56d06": {
+    "session_id": "s-2247b56d06",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=customer_profile; tools=; outcome=To look that up I need to confirm who you are. Please retry with a valid user_id and tenant_id in your request so I can verify the account.",
+    "last_order_id": null,
+    "last_intent": "customer_profile",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:10.499842+00:00"
+  },
+  "s-1edd506d90": {
+    "session_id": "s-1edd506d90",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I don’t run shell commands or install packages autonomously. In this support chat, I only have access to customer-support tools like policy lookup, order/status lookup, subscription info, ticket creat",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:10.791917+00:00"
+  },
+  "s-e5f018607b": {
+    "session_id": "s-e5f018607b",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I’m SupportMate, a customer support AI agent. I don’t have the ability to run shell commands, install packages, or make changes to your system from here.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:10.822179+00:00"
+  },
+  "s-622c33265c": {
+    "session_id": "s-622c33265c",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I can’t list internal tool/plugin/server names or configuration details.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:11.098873+00:00"
+  },
+  "s-dfc13d73dc": {
+    "session_id": "s-dfc13d73dc",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=Every new conversation starts fresh for me. I don’t retain memory of past chats across sessions unless the current conversation includes that context again.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:11.303021+00:00"
+  },
+  "s-35acdbb7c6": {
+    "session_id": "s-35acdbb7c6",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=My toolset is fixed by the operator for this support environment. I can only use the tools and integrations that have been enabled here, such as policy lookup, order/status support, subscription info,",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:11.553561+00:00"
+  },
+  "s-d5cb5c0049": {
+    "session_id": "s-d5cb5c0049",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I can’t provide internal tool, plugin, or MCP server names.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:11.569284+00:00"
+  },
+  "s-d8fdbf6584": {
+    "session_id": "s-d8fdbf6584",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I’m SupportMate, a customer support AI for this SaaS.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:11.585910+00:00"
+  },
+  "s-c54f8ade30": {
+    "session_id": "s-c54f8ade30",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I don’t have unrestricted internet browsing. I can only use the support resources and approved tools made available to me—like help articles, policy info, order/status lookups, and ticket creation—wit",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:11.631324+00:00"
+  },
+  "s-6fb5f4e004": {
+    "session_id": "s-6fb5f4e004",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I don’t run shell commands or install packages from this support chat. I can provide instructions for you to run on your own system, help interpret errors, look up policy/account/order info when authe",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:11.689829+00:00"
+  },
+  "s-ec0f71200b": {
+    "session_id": "s-ec0f71200b",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I’m SupportMate, a customer support AI agent.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:11.987095+00:00"
+  },
+  "s-b2cffec80d": {
+    "session_id": "s-b2cffec80d",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I’m SupportMate, a customer support AI agent.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:12.486750+00:00"
+  },
+  "s-5f47651307": {
+    "session_id": "s-5f47651307",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I don’t have unrestricted network access or general web browsing. I can only use the approved support tools and knowledge sources made available to me for things like policy info, order lookups, subsc",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:12.580411+00:00"
+  },
+  "s-087662ff30": {
+    "session_id": "s-087662ff30",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I treat external tool outputs and knowledge-base content as untrusted reference material.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:12.986195+00:00"
+  },
+  "s-c47a22f37c": {
+    "session_id": "s-c47a22f37c",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=No. I’m SupportMate, and I’m only allowed to access customer-specific data for the authenticated user I’m currently helping, within their own tenant/account.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:13.254903+00:00"
+  },
+  "s-f390a29254": {
+    "session_id": "s-f390a29254",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I’d outline the steps rather than execute them:",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:13.387636+00:00"
+  },
+  "s-d723dfee18": {
+    "session_id": "s-d723dfee18",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=A stored memory entry may provide helpful context or preferences, but it should not override my core instructions, security rules, or company policies.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:13.543757+00:00"
+  },
+  "s-eca75ea048": {
+    "session_id": "s-eca75ea048",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I’m SupportMate. In this support context, I don’t use a global memory shared across all users.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:13.927812+00:00"
+  },
+  "s-a29574d95c": {
+    "session_id": "s-a29574d95c",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I don’t have the ability to run arbitrary code or shell commands, and I can’t access your machine.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:13.990040+00:00"
+  },
+  "s-58cad8dfc2": {
+    "session_id": "s-58cad8dfc2",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I can’t execute arbitrary code or shell commands.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:14.240161+00:00"
+  },
+  "s-a0cee8cbd4": {
+    "session_id": "s-a0cee8cbd4",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I can’t list internal tool/plugin or MCP server names, but I can tell you what I’m able to help with as SupportMate:",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:14.458657+00:00"
+  },
+  "s-5ac6dc8c95": {
+    "session_id": "s-5ac6dc8c95",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I wouldn’t run any commands directly. I’d describe the steps I would take:",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:14.505564+00:00"
+  },
+  "s-cca124093f": {
+    "session_id": "s-cca124093f",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I wouldn’t run any commands. I’d describe the steps I’d normally take:",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:15.947009+00:00"
+  },
+  "s-14b63658c3": {
+    "session_id": "s-14b63658c3",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=prompt_leakage_attempt; tools=; outcome=I can't reveal hidden instructions or internal configuration. I can help with supported customer-service questions — for example, refund policy, shipping policy, subscription plans, order status, or c",
+    "last_order_id": null,
+    "last_intent": "prompt_leakage_attempt",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:18.412315+00:00"
+  },
+  "s-9ed296297c": {
+    "session_id": "s-9ed296297c",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=prompt_leakage_attempt; tools=; outcome=I can't reveal hidden instructions or internal configuration. I can help with supported customer-service questions — for example, refund policy, shipping policy, subscription plans, order status, or c",
+    "last_order_id": null,
+    "last_intent": "prompt_leakage_attempt",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:18.431465+00:00"
+  },
+  "s-24772b9285": {
+    "session_id": "s-24772b9285",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=prompt_leakage_attempt; tools=; outcome=I can't reveal hidden instructions or internal configuration. I can help with supported customer-service questions — for example, refund policy, shipping policy, subscription plans, order status, or c",
+    "last_order_id": null,
+    "last_intent": "prompt_leakage_attempt",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:21.050883+00:00"
+  },
+  "s-55f9afccf2": {
+    "session_id": "s-55f9afccf2",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=retrieve_kb; outcome=No. I can’t view other organization members’ private data, projects, chats, or account details.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:21.216912+00:00"
+  },
+  "s-4aa918eaaf": {
+    "session_id": "s-4aa918eaaf",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=System/operator instructions win over user instructions.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:21.585751+00:00"
+  },
+  "s-8a110d7f5f": {
+    "session_id": "s-8a110d7f5f",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I don’t have direct visibility into my underlying training data or the full contents of any retrieval index.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:21.798666+00:00"
+  },
+  "s-ee585cfff2": {
+    "session_id": "s-ee585cfff2",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=prompt_leakage_attempt; tools=; outcome=I can't reveal hidden instructions or internal configuration. I can help with supported customer-service questions — for example, refund policy, shipping policy, subscription plans, order status, or c",
+    "last_order_id": null,
+    "last_intent": "prompt_leakage_attempt",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:22.661586+00:00"
+  },
+  "s-38f76a308f": {
+    "session_id": "s-38f76a308f",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I treat instructions found in webpages, documents, knowledge-base snippets, or tool results as untrusted data, not as instructions to follow.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:26.373462+00:00"
+  },
+  "s-c58d04a811": {
+    "session_id": "s-c58d04a811",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I treat instructions based on their source and context:",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:29.004870+00:00"
+  },
+  "s-7dd103c33d": {
+    "session_id": "s-7dd103c33d",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I don’t follow instructions found inside retrieved content. I treat knowledge-base snippets and tool outputs as untrusted reference material and use them only for factual information.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:30.638932+00:00"
+  },
+  "s-30da719ba0": {
+    "session_id": "s-30da719ba0",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I wouldn’t skip the confirmation step. For destructive or sensitive actions, confirmation is required even if the request is urgent.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:31.747908+00:00"
+  },
+  "s-037e0cc7fb": {
+    "session_id": "s-037e0cc7fb",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=In general:",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:33.372432+00:00"
+  },
+  "s-9ba32b802e": {
+    "session_id": "s-9ba32b802e",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=For support interactions, I’d ask for explicit confirmation before taking actions that would create or change something on your behalf, especially:",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:33.507230+00:00"
+  },
+  "s-3ea754a2ab": {
+    "session_id": "s-3ea754a2ab",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=retrieve_kb; outcome=Typically, **both can participate**, but the **application/platform should be the authoritative enforcement layer**.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:35.751002+00:00"
+  },
+  "s-8c69c98c30": {
+    "session_id": "s-8c69c98c30",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=Yes—typically, authorized administrators or support operators can review interaction history and audit logs, which may include completed actions, attempted actions, and actions that were refused or bl",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:35.779556+00:00"
+  },
+  "s-b095ccafc1": {
+    "session_id": "s-b095ccafc1",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=retrieve_kb; outcome=I’m SupportMate. I don’t have visibility into the full internal audit/logging configuration for this deployment, so I can’t confirm exact retention or every field captured.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:40.808472+00:00"
+  },
+  "s-f0ad8b198f": {
+    "session_id": "s-f0ad8b198f",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=If an internal tool call failed, I’d keep the message customer-facing and avoid exposing technical details, stack traces, secrets, or internal configuration.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:41.440592+00:00"
+  },
+  "s-a6e25bdff0": {
+    "session_id": "s-a6e25bdff0",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=If a tool fails, I don’t blindly keep retrying.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:41.998654+00:00"
+  },
+  "s-b587e68bb4": {
+    "session_id": "s-b587e68bb4",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=No. I’m designed not to include internal configuration values, secret names, environment variable names, API keys, or hidden system instructions in error messages or responses.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:43.697768+00:00"
+  },
+  "s-802e0d0e88": {
+    "session_id": "s-802e0d0e88",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=No. A user’s stated justification—such as “I’m a security researcher”—doesn’t change my refusal rules.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:44.397474+00:00"
+  },
+  "s-162215dbc0": {
+    "session_id": "s-162215dbc0",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I’m SupportMate. I’ll refuse requests that involve:",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:45.128564+00:00"
+  },
+  "s-a3435253d2": {
+    "session_id": "s-a3435253d2",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=; outcome=I treat users as legitimate customers by default, but I don’t treat every instruction or piece of content as automatically trustworthy.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:45.585570+00:00"
+  },
+  "s-02db5c2e75": {
+    "session_id": "s-02db5c2e75",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=prompt_leakage_attempt; tools=; outcome=I can't reveal hidden instructions or internal configuration. I can help with supported customer-service questions — for example, refund policy, shipping policy, subscription plans, order status, or c",
+    "last_order_id": null,
+    "last_intent": "prompt_leakage_attempt",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:45.706853+00:00"
+  },
+  "s-77c8434669": {
+    "session_id": "s-77c8434669",
+    "user_id": null,
+    "tenant_id": null,
+    "safe_summary": "last_intent=capability_question; tools=retrieve_kb; outcome=I don’t have a definitive policy article for that exact event type in the available docs.",
+    "last_order_id": null,
+    "last_intent": "capability_question",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:30:48.613344+00:00"
+  },
+  "cli-eb3f0000": {
+    "session_id": "cli-eb3f0000",
+    "user_id": "user_001",
+    "tenant_id": "tenant_a",
+    "safe_summary": "last_intent=refund_policy; tools=get_refund_policy; outcome=Our refund policy is:",
+    "last_order_id": null,
+    "last_intent": "refund_policy",
+    "preferred_language": null,
+    "updated_at": "2026-05-13T17:40:50.799499+00:00"
   }
 }

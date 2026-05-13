@@ -48,3 +48,15 @@ where = ["src"]
 testpaths = ["tests"]
 pythonpath = ["src"]
 asyncio_mode = "auto"
+# Silence cosmetic third-party warnings that clutter test output.
+# Tests import `supportmate.graph` directly, bypassing the warning
+# filters set up in `supportmate.main`, so we duplicate them here.
+filterwarnings = [
+    "ignore::PendingDeprecationWarning",
+    "ignore::DeprecationWarning:langchain.*",
+    "ignore::DeprecationWarning:langgraph.*",
+    "ignore::langchain_core._api.deprecation.LangChainPendingDeprecationWarning",
+    "ignore::langchain_core._api.beta_decorator.LangChainBetaWarning",
+    "ignore:.*function callbacks cannot be serialized.*:UserWarning",
+    "ignore:.*allowed_objects.*",
+]
