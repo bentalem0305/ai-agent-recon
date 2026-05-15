@@ -123,6 +123,17 @@ class TargetClientConfig:
     response_path: str | None = None
     timeout: float = 30.0
     max_retries: int = 2
+    # HTTP proxy for traffic between the recon tool and the target agent.
+    # Format: ``http://host:port`` or ``http://user:pass@host:port``. When
+    # set, every probe request is routed through this proxy so an
+    # operator can inspect the full traffic (request + response) in
+    # Burp Suite / mitmproxy / ZAP / Charles. Set ``verify_tls=False``
+    # if the proxy is performing TLS interception with a self-signed CA.
+    proxy: str | None = None
+    # Whether to verify TLS certificates. Disable (False) when routing
+    # through an intercepting proxy whose CA cert isn't installed on
+    # this machine. Defaults to True for safety.
+    verify_tls: bool = True
 
 
 class TargetClient:
@@ -159,10 +170,18 @@ class TargetClient:
         attempts = max(1, self.config.max_retries + 1)
         last_exc: Exception | None = None
 
+        # httpx.Client kwargs — proxy + verify only included when set,
+        # so unaffected setups don't see any behavioural change.
+        client_kwargs: dict[str, Any] = {"timeout": self.config.timeout}
+        if self.config.proxy:
+            client_kwargs["proxy"] = self.config.proxy
+        if self.config.verify_tls is False:
+            client_kwargs["verify"] = False
+
         for attempt in range(attempts):
             start = time.perf_counter()
             try:
-                with httpx.Client(timeout=self.config.timeout) as client:
+                with httpx.Client(**client_kwargs) as client:
                     if method == "GET":
                         # For GET, place rendered body fields in query params if any.
                         params = body if isinstance(body, dict) else None

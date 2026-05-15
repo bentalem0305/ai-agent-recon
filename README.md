@@ -53,6 +53,7 @@ The whole pipeline is built around the [CrewAI](https://github.com/joaomdmoura/c
 - [🎯 Phases 2-4 — PT Planning](#-phases-2-4--pt-planning-the-pt-plan-command)
 - [⚙ Installation](#-installation)
 - [🔧 Configuration](#-configuration)
+- [🕵 Inspecting traffic with an HTTP proxy](#-inspecting-traffic-with-an-http-proxy)
 - [💻 CLI Reference](#-cli-reference)
 - [📈 Output Reports](#-output-reports)
 - [🧪 Practice Targets](#-practice-targets)
@@ -287,6 +288,96 @@ The LLM provider is swappable to any CrewAI-supported provider. The PT planning 
 
 ---
 
+## 🕵 Inspecting traffic with an HTTP proxy
+
+Every probe sent to the target — and every response received — can be routed through an intercepting HTTP proxy for full inspection. Useful when you want to see exactly what the recon tool is doing on the wire, or when you want to record / replay / tamper requests through **Burp Suite, mitmproxy, ZAP, or Charles**.
+
+The proxy applies only to **target traffic** (recon ⇄ target agent). LLM-provider traffic (OpenAI / Anthropic / etc.) is *not* proxied by `--proxy`; set the standard `HTTPS_PROXY` environment variable if you want to inspect that too.
+
+### Burp Suite
+
+Burp listens on `127.0.0.1:8080` by default and intercepts HTTPS with its own CA cert.
+
+```bash
+ai-agent-recon scan \
+  --target-url https://my-agent.example.com/chat \
+  --proxy http://127.0.0.1:8080 \
+  --insecure
+```
+
+- `--proxy` routes all probe traffic through Burp.
+- `--insecure` disables TLS verification on the target side so Burp's intercept doesn't fail. **Only use against systems you own / are authorized to test.**
+
+If you've imported Burp's CA cert into your OS trust store, you can drop `--insecure`.
+
+### mitmproxy
+
+`mitmproxy` listens on `127.0.0.1:8080`. Same flags:
+
+```bash
+ai-agent-recon scan \
+  --target-url https://my-agent.example.com/chat \
+  --proxy http://127.0.0.1:8080 \
+  --insecure
+```
+
+For mitmproxy's web UI run `mitmweb` instead and watch traffic in the browser.
+
+### OWASP ZAP
+
+ZAP listens on `127.0.0.1:8080` by default. Same flags work — the proxy interface is interchangeable.
+
+```bash
+ai-agent-recon scan --target-url https://my-agent.example.com/chat --proxy http://127.0.0.1:8080 --insecure
+```
+
+### Proxy with authentication
+
+If your proxy requires basic auth, embed credentials in the URL:
+
+```bash
+ai-agent-recon scan --target-url https://... --proxy http://user:pass@proxy.example.com:8080
+```
+
+### Persistent proxy via env var
+
+Instead of passing `--proxy` on every run, set the env var:
+
+```bash
+# Bash / zsh
+export AGENT_RECON_PROXY="http://127.0.0.1:8080"
+export AGENT_RECON_VERIFY_TLS=false
+
+# PowerShell
+$env:AGENT_RECON_PROXY = "http://127.0.0.1:8080"
+$env:AGENT_RECON_VERIFY_TLS = "false"
+```
+
+These are picked up automatically. CLI flags still take precedence when both are set.
+
+### Persistent proxy via YAML
+
+`config/config.yaml`:
+
+```yaml
+scan:
+  proxy: "http://127.0.0.1:8080"
+  verify_tls: false
+```
+
+### Proxying LLM traffic too
+
+The standard `HTTPS_PROXY` / `HTTP_PROXY` env vars affect the OpenAI / Anthropic SDKs:
+
+```bash
+export HTTPS_PROXY="http://127.0.0.1:8080"
+ai-agent-recon scan --target-url ... --proxy http://127.0.0.1:8080 --insecure
+```
+
+Now both the recon→target traffic *and* the analysis-crew → OpenAI traffic flow through your proxy.
+
+---
+
 ## 💻 CLI Reference
 
 ### Phase 1: Reconnaissance
@@ -319,6 +410,8 @@ ai-agent-recon scan \
 | `--rate-limit` | Delay between probes in seconds (default `1`). |
 | `--config` | Path to YAML config file. |
 | `--process` | Analysis crew process mode: `sequential` (default) or `hierarchical`. |
+| `--proxy` | Route target traffic through an HTTP proxy for inspection (Burp / mitmproxy / ZAP). Example: `http://127.0.0.1:8080`. |
+| `--insecure` | Disable TLS verification on the target connection (use with intercepting proxies whose CA isn't trusted). |
 | `--verbose` | Enable detailed logs. |
 
 </details>

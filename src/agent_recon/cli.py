@@ -123,6 +123,25 @@ def scan(
             "three workers - more agentic but more LLM calls."
         ),
     ),
+    proxy: Optional[str] = typer.Option(
+        None,
+        "--proxy",
+        help=(
+            "Route all traffic between the recon tool and the target through "
+            "this HTTP proxy. Example: http://127.0.0.1:8080 (Burp Suite default). "
+            "Supports user:pass auth: http://user:pass@host:port. "
+            "Useful for inspecting probes + responses in Burp / mitmproxy / ZAP."
+        ),
+    ),
+    insecure: bool = typer.Option(
+        False,
+        "--insecure",
+        help=(
+            "Disable TLS certificate verification on the target connection. "
+            "Use when --proxy is an intercepting proxy whose CA cert isn't "
+            "installed on this machine. NEVER use against production targets."
+        ),
+    ),
     verbose: bool = typer.Option(
         False,
         "--verbose",
@@ -174,6 +193,19 @@ def scan(
 
     event("[ok]", f"Loaded {len(probes)} probes from {probe_file}", style="ok")
 
+    # Resolve proxy + TLS-verification: CLI flag wins, then YAML config.
+    effective_proxy = proxy if proxy is not None else cfg.scan.proxy
+    effective_verify_tls = (not insecure) and cfg.scan.verify_tls
+
+    if effective_proxy:
+        event("[scan]", f"Routing target traffic through proxy: {effective_proxy}", style="scan")
+    if not effective_verify_tls:
+        event(
+            "[scan]",
+            "⚠  TLS certificate verification DISABLED on target connection.",
+            style="warn",
+        )
+
     # Build the target client config
     target_config = TargetClientConfig(
         url=target_url,
@@ -183,6 +215,8 @@ def scan(
         response_path=response_path if response_path is not None else cfg.target.response_path,
         timeout=float(cfg.scan.timeout),
         max_retries=int(cfg.scan.max_retries),
+        proxy=effective_proxy,
+        verify_tls=effective_verify_tls,
     )
 
     # Import lazily so CLI --help works even if crewai is not installed.

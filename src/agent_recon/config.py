@@ -38,6 +38,14 @@ class ScanConfig(BaseModel):
     timeout: float = 30.0
     rate_limit_seconds: float = 1.0
     max_retries: int = 2
+    # HTTP proxy for traffic between recon and target. Example:
+    # ``http://127.0.0.1:8080`` (Burp default). Overridable by the
+    # ``--proxy`` CLI flag and by the ``AGENT_RECON_PROXY`` env var.
+    proxy: str | None = None
+    # Whether to verify TLS on the target connection. Override to
+    # False (or set ``--insecure``) when routing through an intercepting
+    # proxy whose CA isn't trusted by this machine.
+    verify_tls: bool = True
 
 
 class TargetConfig(BaseModel):
@@ -100,6 +108,22 @@ def _apply_env_overrides(cfg: AppConfig) -> AppConfig:
                 cfg.llm.temperature = float(t)
             except ValueError:
                 pass
+
+    # Proxy + TLS-verification env overrides.
+    # AGENT_RECON_PROXY takes precedence over the standard HTTP(S)_PROXY
+    # env vars so an operator can configure a recon-specific proxy
+    # without affecting other tools (e.g. their browser or OpenAI SDK).
+    proxy_env = os.getenv("AGENT_RECON_PROXY")
+    if proxy_env:
+        cfg.scan.proxy = proxy_env.strip() or None
+
+    verify_env = os.getenv("AGENT_RECON_VERIFY_TLS")
+    if verify_env is not None:
+        v = verify_env.strip().lower()
+        if v in {"0", "false", "no", "off"}:
+            cfg.scan.verify_tls = False
+        elif v in {"1", "true", "yes", "on"}:
+            cfg.scan.verify_tls = True
 
     return cfg
 

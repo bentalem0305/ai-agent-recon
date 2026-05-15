@@ -13,6 +13,15 @@ scan:
   timeout: 30               # HTTP timeout in seconds per probe
   rate_limit_seconds: 1     # delay between probes
   max_retries: 2            # retries on transient HTTP errors
+  # Optional HTTP proxy for traffic between the recon tool and the target.
+  # Routes every probe through Burp Suite / mitmproxy / ZAP for inspection.
+  # Override per-run with: --proxy http://127.0.0.1:8080
+  # Also overridable by env var AGENT_RECON_PROXY.
+  # proxy: "http://127.0.0.1:8080"
+  # Set to false when the proxy uses a self-signed CA cert that isn't
+  # installed on this machine (i.e. Burp's default behaviour). Override
+  # per-run with --insecure, or via env var AGENT_RECON_VERIFY_TLS=false.
+  # verify_tls: true
 
 target:
   method: POST
