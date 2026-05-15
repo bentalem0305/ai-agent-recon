@@ -310,6 +310,9 @@ ai-agent-recon scan \
 
 If you've imported Burp's CA cert into your OS trust store, you can drop `--insecure`.
 
+> ⚠ **Important — turn off Burp's Intercept feature before running a scan.**
+> If Intercept is ON, Burp pauses every request until you click "Forward". The recon tool sends ~60 probes back-to-back, so all but the first ~10 will sit in the intercept queue, eventually time out, and trip the recon's stagnation guard. To inspect traffic, just leave Intercept OFF and read it in the **HTTP history** tab — every request is logged there automatically. Use Intercept only when you specifically want to *edit* a single request mid-flight.
+
 ### mitmproxy
 
 `mitmproxy` listens on `127.0.0.1:8080`. Same flags:

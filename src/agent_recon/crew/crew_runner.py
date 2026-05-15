@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import json
 import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -320,6 +321,43 @@ class CrewRunner:
             "probe_count": toolset.registry.total(),
         }
 
+        # ------------------------------------------------------------------
+        # Wall-clock kill switch. If the agentic phase runs for more than
+        # this many seconds without finishing, we set the registry's
+        # abort flag. The probe tools then refuse further calls and the
+        # agent exits its loop. Configurable via app_config.scan.timeout
+        # multiplied by probe count (with a sane minimum + maximum).
+        # ------------------------------------------------------------------
+        wall_timeout = max(
+            120.0,
+            min(
+                600.0,
+                # Generous: 1.5x the per-probe timeout per probe, plus
+                # 30s of agent overhead. Caps at 10 minutes.
+                float(self.app_config.scan.timeout) * 1.5 * toolset.registry.total()
+                + 30.0,
+            ),
+        )
+
+        def _wall_clock_abort() -> None:
+            done = toolset.registry.done_count()
+            total = toolset.registry.total()
+            if done < total and not toolset.registry.aborted:
+                toolset.registry.abort(
+                    f"wall-clock timeout after {wall_timeout:.0f}s"
+                )
+                event(
+                    "[warn]",
+                    f"⚠  Probe crew exceeded {wall_timeout:.0f}s wall-clock "
+                    f"limit at {done}/{total} probes; aborting agentic "
+                    f"phase, safety net will recover.",
+                    style="warn",
+                )
+
+        timer = threading.Timer(wall_timeout, _wall_clock_abort)
+        timer.daemon = True
+        timer.start()
+
         try:
             crew.kickoff(inputs=inputs)
         except Exception as e:
@@ -350,6 +388,8 @@ class CrewRunner:
                     f"({type(e).__name__}); safety net will recover.",
                     style="warn",
                 )
+        finally:
+            timer.cancel()
 
     # ------------------------------------------------------------------
     # Phase 2: deterministic safety net
@@ -538,27 +578,81 @@ class CrewRunner:
 
 
 # ---------------------------------------------------------------------------
-# Step callback (live observability for the agentic phase)
+# Step callback (live observability + stagnation detection)
 # ---------------------------------------------------------------------------
+
+# How many consecutive agent steps without ANY progress in done_count
+# before we declare the agent stagnant and trip the abort flag.
+_STAGNATION_THRESHOLD = 12
+
 
 def _make_step_callback(registry: ProbeRegistry) -> Any:
     """Return a callback CrewAI invokes after every agent step.
 
-    Best-effort: CrewAI's callback payload shape changes across versions,
-    so we extract what we can and stay quiet if the shape is unfamiliar.
+    Does three jobs:
+      1. Logs every step (tool name when present, step type otherwise)
+         so an operator can see exactly what the agent is doing.
+      2. Detects stagnation - if the registry's ``done_count`` doesn't
+         move for ``_STAGNATION_THRESHOLD`` consecutive steps, flips the
+         registry's abort flag. The probe tools then refuse further
+         calls and the agent exits its loop quickly.
+      3. Respects the abort flag - if already aborted, this is a no-op.
+
+    Best-effort: CrewAI's callback payload shape changes across
+    versions, so we extract what we can and stay quiet if the shape
+    is unfamiliar.
     """
+
+    # Mutable state captured in the closure.
+    state = {"last_done": registry.done_count(), "no_progress": 0, "step_idx": 0}
 
     def _cb(step: Any) -> None:
         try:
-            tool = getattr(step, "tool", None) or getattr(step, "tool_name", None)
-            if tool:
-                done = registry.done_count()
-                total = registry.total()
-                event(
-                    "[agent]",
-                    f"tool={tool} progress={done}/{total}",
-                    style="probe",
-                )
+            state["step_idx"] += 1
+            # --- Best-effort tool extraction ---
+            tool = (
+                getattr(step, "tool", None)
+                or getattr(step, "tool_name", None)
+            )
+            if tool is None:
+                action = getattr(step, "action", None) or getattr(step, "thought_action", None)
+                if action is not None:
+                    tool = (
+                        getattr(action, "tool", None)
+                        or getattr(action, "tool_name", None)
+                    )
+
+            done = registry.done_count()
+            total = registry.total()
+
+            # --- Log every step so the operator can SEE behaviour ---
+            label = tool if tool else type(step).__name__
+            event(
+                "[agent]",
+                f"step={state['step_idx']:03d} {label}  progress={done}/{total}",
+                style="probe",
+            )
+
+            # --- Stagnation detection ---
+            if done > state["last_done"]:
+                state["last_done"] = done
+                state["no_progress"] = 0
+            else:
+                state["no_progress"] += 1
+                if (
+                    state["no_progress"] >= _STAGNATION_THRESHOLD
+                    and not registry.aborted
+                ):
+                    reason = (
+                        f"agent made {_STAGNATION_THRESHOLD} consecutive steps "
+                        f"without finishing a probe at {done}/{total}"
+                    )
+                    registry.abort(reason)
+                    event(
+                        "[warn]",
+                        f"⚠  {reason}; aborting agentic phase, safety net will recover.",
+                        style="warn",
+                    )
         except Exception:  # pragma: no cover - never let logging break a scan
             pass
 

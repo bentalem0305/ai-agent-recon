@@ -58,12 +58,21 @@ class ProbeRegistry:
     Holds the loaded queries, the target client, and the per-query
     results as they come in. The registry is the single source of
     truth for "what queries exist" and "what has been run".
+
+    The ``aborted`` flag is flipped by the orchestrator (via wall-clock
+    timeout or stagnation detection) to signal that the agentic probe
+    phase should bail. When set, all probe tools return early with a
+    clear error so the LLM stops spinning and CrewAI can return
+    control to the orchestrator, which then hands remaining work to
+    the deterministic safety net.
     """
 
     target_client: TargetClient
     probes: dict[str, Probe] = field(default_factory=dict)
     order: list[str] = field(default_factory=list)
     results: dict[str, ProbeResult] = field(default_factory=dict)
+    aborted: bool = False
+    abort_reason: str = ""
 
     @classmethod
     def from_probes(cls, target_client: TargetClient, probes: list[Probe]) -> "ProbeRegistry":
@@ -72,6 +81,11 @@ class ProbeRegistry:
             reg.probes[p.id] = p
             reg.order.append(p.id)
         return reg
+
+    def abort(self, reason: str) -> None:
+        """Flip the abort flag. Tools will refuse subsequent calls."""
+        self.aborted = True
+        self.abort_reason = reason
 
     # ------------------------------------------------------------------
     # Queries
@@ -181,6 +195,23 @@ class SendControlledPromptTool(BaseTool):
 
     def _run(self, query_id: str) -> str:
         reg: ProbeRegistry = self.registry  # type: ignore[assignment]
+        if reg.aborted:
+            return json.dumps(
+                {
+                    "ok": False,
+                    "aborted": True,
+                    "error": (
+                        f"scan_aborted: {reg.abort_reason}. Stop calling "
+                        f"tools and return your final summary."
+                    ),
+                    "progress": {
+                        "done": reg.done_count(),
+                        "remaining": reg.total() - reg.done_count(),
+                        "total": reg.total(),
+                    },
+                },
+                ensure_ascii=False,
+            )
         if not reg.is_known(query_id):
             return json.dumps(
                 {
@@ -245,6 +276,20 @@ class ListPendingProbesTool(BaseTool):
 
     def _run(self, limit: int = 10) -> str:
         reg: ProbeRegistry = self.registry  # type: ignore[assignment]
+        if reg.aborted:
+            return json.dumps(
+                {
+                    "aborted": True,
+                    "error": f"scan_aborted: {reg.abort_reason}. Stop calling tools.",
+                    "remaining_ids": [],
+                    "progress": {
+                        "done": reg.done_count(),
+                        "remaining": reg.total() - reg.done_count(),
+                        "total": reg.total(),
+                    },
+                },
+                ensure_ascii=False,
+            )
         # Return ONLY the IDs (no category / goal / type) to keep this
         # tool's response tiny - the agent only needs IDs to drive
         # run_evaluation_query. Keeping per-call payloads small is
@@ -282,15 +327,18 @@ class GetScanProgressTool(BaseTool):
 
     def _run(self) -> str:
         reg: ProbeRegistry = self.registry  # type: ignore[assignment]
-        return json.dumps(
-            {
-                "done": reg.done_count(),
-                "remaining": reg.total() - reg.done_count(),
-                "total": reg.total(),
-                "complete": reg.done_count() == reg.total(),
-            },
-            ensure_ascii=False,
-        )
+        payload: dict[str, Any] = {
+            "done": reg.done_count(),
+            "remaining": reg.total() - reg.done_count(),
+            "total": reg.total(),
+            "complete": reg.done_count() == reg.total(),
+        }
+        if reg.aborted:
+            payload["aborted"] = True
+            payload["error"] = (
+                f"scan_aborted: {reg.abort_reason}. Stop calling tools."
+            )
+        return json.dumps(payload, ensure_ascii=False)
 
 
 # ---------------------------------------------------------------------------
