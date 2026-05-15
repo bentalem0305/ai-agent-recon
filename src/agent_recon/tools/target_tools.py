@@ -135,10 +135,15 @@ class ListPendingProbesInput(BaseModel):
     """Input schema for the list_remaining_queries tool."""
 
     limit: int = Field(
-        20,
+        10,
         ge=1,
-        le=200,
-        description="Maximum number of remaining queries to return (default 20).",
+        le=50,
+        description=(
+            "Maximum number of remaining query IDs to return in one call "
+            "(default 10, max 50). Smaller limits keep the LLM context "
+            "small; call the tool again after running a batch to fetch "
+            "the next IDs."
+        ),
     )
 
 
@@ -196,18 +201,19 @@ class SendControlledPromptTool(BaseTool):
         already_done = reg.is_done(query_id)
         result = reg.run_probe(query_id)
 
+        # IMPORTANT: We deliberately do NOT echo the target's response body
+        # back to the LLM. The Probe Operator agent's job is to *issue*
+        # probes, not to read responses - the Classifier reads them later
+        # directly from the registry. Echoing ~1.5 KB of response text
+        # back on every tool call rapidly bloats the conversation context
+        # and triggers OpenAI's 128K-token limit after ~30-40 probes.
+        # Keep this payload minimal (~150 bytes / call).
         return json.dumps(
             {
                 "ok": True,
                 "query_id": result.probe_id,
-                "category": result.category,
                 "already_done": already_done,
-                # Truncate to keep tool-output token cost bounded, while
-                # leaving room for evidence quoting downstream.
-                "response": (result.raw_response or "")[:1500],
-                "response_truncated": len(result.raw_response or "") > 1500,
                 "http_status": result.http_status,
-                "latency_ms": result.latency_ms,
                 "error": result.error,
                 "progress": {
                     "done": reg.done_count(),
@@ -224,10 +230,11 @@ class ListPendingProbesTool(BaseTool):
 
     name: str = "list_remaining_queries"
     description: str = (
-        "List query IDs that have not yet been run, with their category "
-        "and goal. Use this to decide which query to run next via "
-        "run_evaluation_query. Returns an empty list when the run is "
-        "complete."
+        "Return the next batch of query IDs that still need to be run, as a "
+        "flat list of strings. Use this to decide which IDs to pass to "
+        "run_evaluation_query next. Returns an empty list when the run is "
+        "complete. Keep the limit small (default 10) to keep the LLM "
+        "context lean."
     )
     args_schema: Type[BaseModel] = ListPendingProbesInput
     registry: Any = None
@@ -236,21 +243,17 @@ class ListPendingProbesTool(BaseTool):
         super().__init__(**kwargs)
         object.__setattr__(self, "registry", registry)
 
-    def _run(self, limit: int = 20) -> str:
+    def _run(self, limit: int = 10) -> str:
         reg: ProbeRegistry = self.registry  # type: ignore[assignment]
+        # Return ONLY the IDs (no category / goal / type) to keep this
+        # tool's response tiny - the agent only needs IDs to drive
+        # run_evaluation_query. Keeping per-call payloads small is
+        # critical for staying inside OpenAI's 128K context limit when
+        # the dataset has ~60 probes.
         pending_ids = reg.pending_ids()[: max(1, int(limit))]
-        items = [
-            {
-                "query_id": pid,
-                "category": reg.probes[pid].category,
-                "query_type": reg.probes[pid].probe_type.value,
-                "goal": reg.probes[pid].goal,
-            }
-            for pid in pending_ids
-        ]
         return json.dumps(
             {
-                "remaining": items,
+                "remaining_ids": pending_ids,
                 "progress": {
                     "done": reg.done_count(),
                     "remaining": reg.total() - reg.done_count(),

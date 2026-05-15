@@ -299,9 +299,11 @@ class CrewRunner:
         probe_agent = ProbeAgentFactory.build(
             llm=llm,
             toolset=toolset,
-            # Give the agent enough room to call list_pending + send for
-            # every probe plus get_scan_progress checks. ~3x is comfortable.
-            max_iter=max(60, toolset.registry.total() * 3),
+            # Cap iterations at roughly 1.3x the probe count - enough for
+            # one tool call per probe + ~30% slack for list/progress
+            # check-ins, but bounded so a misbehaving agent can't run
+            # forever bloating context until OpenAI rejects the request.
+            max_iter=max(40, int(toolset.registry.total() * 1.3) + 10),
         )
         probe_task = build_probe_task(probe_agent)
 
@@ -321,14 +323,33 @@ class CrewRunner:
         try:
             crew.kickoff(inputs=inputs)
         except Exception as e:
-            # The safety net will still fill in everything the agent
-            # missed; we keep the scan moving.
-            log.exception("Probe crew execution failed: %s", e)
-            event(
-                "[warn]",
-                f"Probe crew errored ({e!r}); safety net will recover.",
-                style="warn",
-            )
+            # The probe crew failed mid-run. Recognise the common
+            # context-window-exceeded failure mode and explain it
+            # clearly instead of dumping a 200-line traceback - the
+            # safety net will pick up the remaining probes either way.
+            err_text = str(e).lower()
+            done = toolset.registry.done_count()
+            total = toolset.registry.total()
+            if "context length" in err_text or "context_length_exceeded" in err_text:
+                event(
+                    "[warn]",
+                    f"⚠  Probe crew hit the LLM context-length limit after "
+                    f"{done}/{total} probes — this happens on very long "
+                    f"probe lists when the agent re-checks progress too "
+                    f"often. The deterministic safety net will run the "
+                    f"remaining {total - done} probes directly.",
+                    style="warn",
+                )
+            else:
+                # Don't print the full traceback - it's noisy and the
+                # safety net handles whatever the agent missed.
+                log.debug("Probe crew execution failed: %s", e, exc_info=True)
+                event(
+                    "[warn]",
+                    f"Probe crew errored after {done}/{total} probes "
+                    f"({type(e).__name__}); safety net will recover.",
+                    style="warn",
+                )
 
     # ------------------------------------------------------------------
     # Phase 2: deterministic safety net
