@@ -142,6 +142,18 @@ def scan(
             "installed on this machine. NEVER use against production targets."
         ),
     ),
+    agentic_probe_budget: Optional[int] = typer.Option(
+        None,
+        "--agentic-probe-budget",
+        help=(
+            "How many probes the CrewAI agent should run as a demonstration "
+            "before the deterministic safety net takes over (default 5). "
+            "The safety net always runs every remaining probe, so coverage "
+            "is unaffected. Set to 0 to skip the agentic phase entirely "
+            "(fastest, no LLM calls during probing - analysis still uses "
+            "the LLM)."
+        ),
+    ),
     verbose: bool = typer.Option(
         False,
         "--verbose",
@@ -166,6 +178,8 @@ def scan(
         cfg.scan.timeout = float(timeout)
     if rate_limit is not None:
         cfg.scan.rate_limit_seconds = float(rate_limit)
+    if agentic_probe_budget is not None:
+        cfg.scan.agentic_probe_budget = max(0, int(agentic_probe_budget))
 
     # Parse headers
     try:

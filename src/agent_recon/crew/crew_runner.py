@@ -295,16 +295,31 @@ class CrewRunner:
         canonical record of what got probed.
         """
 
-        event("[scan]", "Phase 1: agentic probing...", style="scan")
+        agentic_budget = int(getattr(self.app_config.scan, "agentic_probe_budget", 5))
+        if agentic_budget <= 0:
+            event(
+                "[scan]",
+                "Agentic probe budget = 0; skipping agentic phase entirely. "
+                "All probes will run via the deterministic safety net.",
+                style="scan",
+            )
+            return
+
+        event(
+            "[scan]",
+            f"Phase 1: agentic probing (budget = {agentic_budget} probes, "
+            f"rest will run via safety net)...",
+            style="scan",
+        )
 
         probe_agent = ProbeAgentFactory.build(
             llm=llm,
             toolset=toolset,
-            # Cap iterations at roughly 1.3x the probe count - enough for
-            # one tool call per probe + ~30% slack for list/progress
-            # check-ins, but bounded so a misbehaving agent can't run
-            # forever bloating context until OpenAI rejects the request.
-            max_iter=max(40, int(toolset.registry.total() * 1.3) + 10),
+            # Cap iterations tightly. The agent only needs to do
+            # ``agentic_budget`` probes - we don't want it spinning for
+            # hours trying to do all 60. max_iter = budget * 3 gives
+            # plenty of slack for list/progress checks per probe.
+            max_iter=max(15, agentic_budget * 3),
         )
         probe_task = build_probe_task(probe_agent)
 
@@ -313,7 +328,10 @@ class CrewRunner:
             tasks=[probe_task],
             process=Process.sequential,
             verbose=False,
-            step_callback=_make_step_callback(toolset.registry),
+            step_callback=_make_step_callback(
+                toolset.registry,
+                agentic_probe_budget=agentic_budget,
+            ),
         )
 
         inputs: dict[str, Any] = {
@@ -322,20 +340,16 @@ class CrewRunner:
         }
 
         # ------------------------------------------------------------------
-        # Wall-clock kill switch. If the agentic phase runs for more than
-        # this many seconds without finishing, we set the registry's
-        # abort flag. The probe tools then refuse further calls and the
-        # agent exits its loop. Configurable via app_config.scan.timeout
-        # multiplied by probe count (with a sane minimum + maximum).
+        # Wall-clock kill switch. Sized to the agentic budget, not the
+        # full probe count, since the agent now only needs to do
+        # ``agentic_budget`` probes before the safety net takes over.
+        # Floor: 60s. Ceiling: 5 minutes.
         # ------------------------------------------------------------------
         wall_timeout = max(
-            120.0,
+            60.0,
             min(
-                600.0,
-                # Generous: 1.5x the per-probe timeout per probe, plus
-                # 30s of agent overhead. Caps at 10 minutes.
-                float(self.app_config.scan.timeout) * 1.5 * toolset.registry.total()
-                + 30.0,
+                300.0,
+                float(self.app_config.scan.timeout) * 1.5 * agentic_budget + 30.0,
             ),
         )
 
@@ -578,32 +592,37 @@ class CrewRunner:
 
 
 # ---------------------------------------------------------------------------
-# Step callback (live observability + stagnation detection)
+# Step callback (live observability + stagnation/budget detection)
 # ---------------------------------------------------------------------------
 
 # How many consecutive agent steps without ANY progress in done_count
 # before we declare the agent stagnant and trip the abort flag.
-_STAGNATION_THRESHOLD = 12
+_STAGNATION_THRESHOLD = 8
 
 
-def _make_step_callback(registry: ProbeRegistry) -> Any:
+def _make_step_callback(
+    registry: ProbeRegistry,
+    *,
+    agentic_probe_budget: int = 5,
+) -> Any:
     """Return a callback CrewAI invokes after every agent step.
 
-    Does three jobs:
+    Does four jobs:
       1. Logs every step (tool name when present, step type otherwise)
          so an operator can see exactly what the agent is doing.
-      2. Detects stagnation - if the registry's ``done_count`` doesn't
-         move for ``_STAGNATION_THRESHOLD`` consecutive steps, flips the
-         registry's abort flag. The probe tools then refuse further
-         calls and the agent exits its loop quickly.
-      3. Respects the abort flag - if already aborted, this is a no-op.
+      2. Stops the agentic phase as soon as the agent has finished
+         ``agentic_probe_budget`` probes - the rest are run by the
+         deterministic safety net. The agentic phase is a *demonstration*
+         of CrewAI capability, not the workhorse.
+      3. Detects stagnation - if ``done_count`` doesn't move for
+         ``_STAGNATION_THRESHOLD`` consecutive steps, flips the abort flag.
+      4. Respects the abort flag - if already aborted, this is a no-op.
 
     Best-effort: CrewAI's callback payload shape changes across
     versions, so we extract what we can and stay quiet if the shape
     is unfamiliar.
     """
 
-    # Mutable state captured in the closure.
     state = {"last_done": registry.done_count(), "no_progress": 0, "step_idx": 0}
 
     def _cb(step: Any) -> None:
@@ -633,7 +652,27 @@ def _make_step_callback(registry: ProbeRegistry) -> Any:
                 style="probe",
             )
 
-            # --- Stagnation detection ---
+            # --- Budget reached: hand off to safety net intentionally ---
+            if (
+                agentic_probe_budget > 0
+                and done >= agentic_probe_budget
+                and not registry.aborted
+            ):
+                reason = (
+                    f"agentic demonstration budget reached "
+                    f"({done}/{agentic_probe_budget})"
+                )
+                registry.abort(reason)
+                event(
+                    "[scan]",
+                    f"✓ Agentic phase complete after {done} probe(s) "
+                    f"(budget={agentic_probe_budget}); safety net will run the "
+                    f"remaining {total - done} deterministically.",
+                    style="ok",
+                )
+                return
+
+            # --- Stagnation detection (independent backstop) ---
             if done > state["last_done"]:
                 state["last_done"] = done
                 state["no_progress"] = 0

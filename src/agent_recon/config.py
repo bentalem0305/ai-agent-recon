@@ -46,6 +46,14 @@ class ScanConfig(BaseModel):
     # False (or set ``--insecure``) when routing through an intercepting
     # proxy whose CA isn't trusted by this machine.
     verify_tls: bool = True
+    # How many probes the agentic (CrewAI) phase should run as a
+    # *demonstration* before handing the rest off to the deterministic
+    # safety net. The LLM agent often wastes LLM calls re-checking
+    # progress; capping the agentic budget keeps Phase 1 short and
+    # cheap while preserving full coverage via the safety net.
+    # Set to ``0`` to disable agentic probing entirely; the safety
+    # net then runs every probe.
+    agentic_probe_budget: int = 5
 
 
 class TargetConfig(BaseModel):

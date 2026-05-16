@@ -160,6 +160,17 @@ The Classifier and Validator carry **three hard rules** to fight three well-know
 2. **Polarity reading** — A stated defense *lowers* the corresponding risk, not raises it.
 3. **Concrete-gap bar** — `risk_flags` requires an out-of-scope capability, a stated weak boundary, a contradiction, or a demonstrated leak. Ambiguity goes in `uncertainty_notes`; non-findings are omitted entirely.
 
+### Agentic demonstration + deterministic safety net
+
+The Probe Operator agent **does not personally run all ~60 probes**. By design it runs a small *demonstration* batch (default **5 probes**, configurable via `--agentic-probe-budget`), then the deterministic safety net runs every remaining probe in a tight loop. This split:
+
+- 🚀 Keeps Phase 1 short (~1–2 minutes total instead of 10+).
+- 💰 Keeps LLM cost predictable — the agent makes ~5–15 LLM calls during probing, not ~80.
+- ✅ Guarantees 100% probe coverage regardless of how the LLM behaves.
+- 🧩 Preserves the "real CrewAI agent" architecture — the Probe Operator IS in charge during its budget; it just hands off cleanly.
+
+Pass `--agentic-probe-budget 20` to give the agent more demonstration room, or `--agentic-probe-budget 0` to skip agentic probing entirely (fastest mode — the safety net runs every probe and the analysis crew still uses the LLM).
+
 ### Process modes (`--process`)
 
 | Mode | Behavior |
@@ -415,6 +426,7 @@ ai-agent-recon scan \
 | `--process` | Analysis crew process mode: `sequential` (default) or `hierarchical`. |
 | `--proxy` | Route target traffic through an HTTP proxy for inspection (Burp / mitmproxy / ZAP). Example: `http://127.0.0.1:8080`. |
 | `--insecure` | Disable TLS verification on the target connection (use with intercepting proxies whose CA isn't trusted). |
+| `--agentic-probe-budget` | How many probes the CrewAI Probe Operator runs as a demonstration before the deterministic safety net takes over (default `5`). Set to `0` to skip the agentic phase entirely. Coverage is always 100% — only the *driver* of those probes changes. |
 | `--verbose` | Enable detailed logs. |
 
 </details>
