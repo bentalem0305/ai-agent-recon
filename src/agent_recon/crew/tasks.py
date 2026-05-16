@@ -354,11 +354,41 @@ def build_probe_task(agent: Any) -> Any:
     )
 
 
-def build_classification_task(agent: Any, probe_task: Any | None = None) -> Any:
+def build_classification_task(
+    agent: Any,
+    probe_task: Any | None = None,
+    *,
+    target_url: str | None = None,
+    probe_results_json: str | None = None,
+) -> Any:
+    """Build the Classifier task.
+
+    When ``target_url`` and ``probe_results_json`` are provided we
+    pre-substitute the description's ``{target_url}`` and
+    ``{probe_results_json}`` placeholders here, BEFORE handing the
+    description to CrewAI. This bypasses CrewAI's own input-substitution
+    pipeline, which has been observed to silently drop large JSON
+    inputs (notably the ~30 KB probe-results blob) on some versions -
+    leaving the Classifier with nothing to classify and producing
+    nearly empty reports.
+    """
     if Task is None:  # pragma: no cover
         raise RuntimeError("crewai is not installed.")
+
+    description = CLASSIFICATION_DESCRIPTION
+    if target_url is not None or probe_results_json is not None:
+        # Defensive substitution: only replace the keys we explicitly
+        # provide, leave any other ``{...}`` text alone (str.replace
+        # rather than str.format avoids KeyError on unrelated braces).
+        if target_url is not None:
+            description = description.replace("{target_url}", target_url)
+        if probe_results_json is not None:
+            description = description.replace(
+                "{probe_results_json}", probe_results_json
+            )
+
     kwargs: dict[str, Any] = dict(
-        description=CLASSIFICATION_DESCRIPTION,
+        description=description,
         expected_output=CLASSIFICATION_EXPECTED_OUTPUT,
         agent=agent,
         output_pydantic=ClassificationResult,
@@ -380,11 +410,35 @@ def build_validation_task(agent: Any, classification_task: Any) -> Any:
     )
 
 
-def build_report_task(agent: Any, classification_task: Any, validation_task: Any) -> Any:
+def build_report_task(
+    agent: Any,
+    classification_task: Any,
+    validation_task: Any,
+    *,
+    target_url: str | None = None,
+    probe_count: int | None = None,
+    error_count: int | None = None,
+) -> Any:
+    """Build the Reporter task with optional pre-substituted inputs.
+
+    Same rationale as :func:`build_classification_task` - we substitute
+    here in Python rather than rely on CrewAI's input-substitution
+    pipeline, which has been observed to silently drop input values
+    on some versions.
+    """
     if Task is None:  # pragma: no cover
         raise RuntimeError("crewai is not installed.")
+
+    description = REPORT_DESCRIPTION
+    if target_url is not None:
+        description = description.replace("{target_url}", target_url)
+    if probe_count is not None:
+        description = description.replace("{probe_count}", str(probe_count))
+    if error_count is not None:
+        description = description.replace("{error_count}", str(error_count))
+
     return Task(
-        description=REPORT_DESCRIPTION,
+        description=description,
         expected_output=REPORT_EXPECTED_OUTPUT,
         agent=agent,
         context=[classification_task, validation_task],

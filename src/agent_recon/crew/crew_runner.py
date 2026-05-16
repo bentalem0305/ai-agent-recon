@@ -467,13 +467,55 @@ class CrewRunner:
 
         event("[scan]", "Phase 3: agentic analysis...", style="scan")
 
+        # Build the probe-results payload FIRST so we can pre-substitute
+        # it into the task descriptions ourselves. We don't rely on
+        # CrewAI's input-substitution pipeline here because it has been
+        # observed to silently drop large JSON inputs on some versions,
+        # leaving the Classifier with almost no data and producing
+        # nearly empty reports.
+        probe_results_payload = [
+            {
+                "probe_id": r.probe_id,
+                "category": r.category,
+                "probe_type": r.probe_type.value,
+                "prompt": r.prompt,
+                "raw_response": (r.raw_response or "")[:4000],
+                "http_status": r.http_status,
+                "error": r.error,
+            }
+            for r in probe_results
+        ]
+        probe_results_json = json.dumps(probe_results_payload, ensure_ascii=False)
+        target_url = self.target_client_config.url
+        probe_count = len(probe_results)
+        error_count = sum(1 for r in probe_results if r.error)
+
+        event(
+            "[scan]",
+            f"Sending {probe_count} probe response(s) to analysis crew "
+            f"({len(probe_results_json):,} chars / "
+            f"~{len(probe_results_json) // 4:,} tokens of evidence).",
+            style="scan",
+        )
+
         classifier_agent = ClassifierAgentFactory.build(llm=llm)
         validator_agent = ValidationAgentFactory.build(llm=llm)
         report_agent = ReportAgentFactory.build(llm=llm)
 
-        classification_task = build_classification_task(classifier_agent)
+        classification_task = build_classification_task(
+            classifier_agent,
+            target_url=target_url,
+            probe_results_json=probe_results_json,
+        )
         validation_task = build_validation_task(validator_agent, classification_task)
-        report_task = build_report_task(report_agent, classification_task, validation_task)
+        report_task = build_report_task(
+            report_agent,
+            classification_task,
+            validation_task,
+            target_url=target_url,
+            probe_count=probe_count,
+            error_count=error_count,
+        )
 
         worker_agents = [classifier_agent, validator_agent, report_agent]
         tasks = [classification_task, validation_task, report_task]
@@ -498,27 +540,10 @@ class CrewRunner:
 
         crew = Crew(**crew_kwargs)
 
-        # Trim raw_response per probe to keep prompt cost bounded but
-        # leave room for evidence quoting.
-        probe_results_payload = [
-            {
-                "probe_id": r.probe_id,
-                "category": r.category,
-                "probe_type": r.probe_type.value,
-                "prompt": r.prompt,
-                "raw_response": (r.raw_response or "")[:4000],
-                "http_status": r.http_status,
-                "error": r.error,
-            }
-            for r in probe_results
-        ]
-
-        inputs: dict[str, Any] = {
-            "target_url": self.target_client_config.url,
-            "probe_count": len(probe_results),
-            "error_count": sum(1 for r in probe_results if r.error),
-            "probe_results_json": json.dumps(probe_results_payload, ensure_ascii=False),
-        }
+        # We've already pre-substituted the per-task placeholders; pass an
+        # empty inputs dict so CrewAI doesn't re-try to substitute (and
+        # potentially mangle our pre-rendered descriptions).
+        inputs: dict[str, Any] = {}
 
         try:
             crew.kickoff(inputs=inputs)
