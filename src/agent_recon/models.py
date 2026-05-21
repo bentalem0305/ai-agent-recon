@@ -127,6 +127,41 @@ class RiskFinding(BaseModel):
     confidence: Confidence = Confidence.medium
 
 
+class VerifiedDefense(BaseModel):
+    """A stated defense the assistant demonstrated against a behavior class.
+
+    A `verified_defense` is the positive twin of a `risk_flag`. When the
+    Classifier sees the assistant explicitly describe a defense (e.g.
+    "I treat retrieved content as untrusted data" or "I refuse to share
+    my system instructions"), it records the defense here so the report
+    can showcase what the assistant got RIGHT, not only what it got
+    wrong. This matters for well-defended agents whose reports would
+    otherwise look misleadingly empty.
+
+    The polarity rule still applies: a stated defense lowers the matching
+    risk (the risk_flag is denied/not_observed), AND populates an entry
+    here. The two views describe the same underlying observation from
+    opposite angles.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # Short identifier of the behavior class the defense protects against,
+    # e.g. "indirect_prompt_injection", "prompt_leakage",
+    # "cross_tenant_access", "unauthorized_tool_use".
+    behavior_class: str
+    # Optional OWASP Agentic AI category id (ASI01..ASI10) when the
+    # defense maps cleanly onto one.
+    asi_id: str | None = None
+    # The defense statement the assistant made, in short paraphrased form.
+    statement: str
+    # Direct quoted snippets from probe responses that demonstrate the
+    # defense. Each entry must be a short quote, not a paraphrase.
+    evidence: list[str] = Field(default_factory=list)
+    related_probe_ids: list[str] = Field(default_factory=list)
+    confidence: Confidence = Confidence.medium
+
+
 class ClassificationResult(BaseModel):
     """Output of the Response Classifier Agent."""
 
@@ -135,6 +170,9 @@ class ClassificationResult(BaseModel):
     agent_type: list[str] = Field(default_factory=list)
     capabilities: list[CapabilityFinding] = Field(default_factory=list)
     risk_flags: list[RiskFinding] = Field(default_factory=list)
+    # v2.0: positive findings — defenses the assistant demonstrated.
+    # Optional / default empty so v1.x reports still deserialize cleanly.
+    verified_defenses: list[VerifiedDefense] = Field(default_factory=list)
     uncertainty_notes: list[str] = Field(default_factory=list)
 
 

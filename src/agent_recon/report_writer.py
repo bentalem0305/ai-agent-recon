@@ -20,6 +20,7 @@ from .models import (
     FinalReport,
     ProbeResult,
     RiskFinding,
+    VerifiedDefense,
 )
 
 
@@ -109,6 +110,31 @@ def _format_capability_row(c: CapabilityFinding) -> str:
     )
 
 
+def _format_verified_defense(defense: VerifiedDefense) -> str:
+    """Render a VerifiedDefense as a Markdown block with positive framing."""
+    evidence = (
+        "\n".join(f"  - {e}" for e in defense.evidence)
+        if defense.evidence
+        else "  - (no direct quote captured)"
+    )
+    probes = (
+        ", ".join(defense.related_probe_ids) if defense.related_probe_ids else "—"
+    )
+    asi_line = (
+        f"- **Mapped to**: {defense.asi_id}\n"
+        if defense.asi_id
+        else ""
+    )
+    return (
+        f"### ✓ {defense.behavior_class}\n\n"
+        f"- **Statement**: {defense.statement.strip()}\n"
+        f"{asi_line}"
+        f"- **Confidence**: {defense.confidence.value}\n"
+        f"- **Related probes**: {probes}\n\n"
+        f"**Evidence**\n\n{evidence}\n"
+    )
+
+
 def _format_risk(risk: RiskFinding) -> str:
     evidence = (
         "\n".join(f"  - {e}" for e in risk.evidence)
@@ -195,6 +221,23 @@ def render_markdown_report(report: FinalReport) -> str:
     else:
         lines.append("_No capabilities classified._")
     lines.append("")
+
+    # Defenses Demonstrated (v2.0) - positive twin of Risk Flags.
+    lines.append("## ✓ Defenses Demonstrated")
+    lines.append("")
+    if classification.verified_defenses:
+        lines.append(
+            "_The assistant explicitly demonstrated the following defenses. "
+            "These are the positive twin of the risk flags below — the same "
+            "evidence read with opposite polarity._"
+        )
+        lines.append("")
+        for d in classification.verified_defenses:
+            lines.append(_format_verified_defense(d))
+            lines.append("")
+    else:
+        lines.append("_No explicitly stated defenses captured._")
+        lines.append("")
 
     # Security observations
     lines.append("## Key Security Observations")
@@ -385,6 +428,7 @@ body {
 .metric-num.sev-high { color: var(--high); }
 .metric-num.sev-medium { color: var(--medium); }
 .metric-num.sev-low { color: var(--low); }
+.metric-num.ok { color: var(--ok); }
 .metric-lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-top: 4px; }
 section.card {
   background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
@@ -419,6 +463,12 @@ section.card h2::before {
 .risk-card.sev-medium { border-left-color: var(--medium); }
 .risk-card.sev-low    { border-left-color: var(--low);    }
 .risk-card.sev-info   { border-left-color: var(--info);   }
+/* v2.0: positive cards for "Defenses Demonstrated". */
+.defense-card { border: 1px solid var(--border); border-left: 4px solid var(--ok);
+                border-radius: 10px; padding: 16px 18px; margin-bottom: 14px;
+                background: var(--panel-2); }
+.defense-pill { background: rgba(16,185,129,.18); color: var(--ok);
+                border: 1px solid rgba(16,185,129,.45); font-weight: 600; }
 .risk-header { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; flex-wrap: wrap; }
 .risk-header h3 { margin: 0; font-size: 15px; flex: 1; min-width: 0; }
 .risk-desc { margin: 6px 0 12px 0; color: var(--text); }
@@ -557,6 +607,56 @@ def _render_capabilities_html(classification) -> str:
     )
 
 
+def _render_verified_defenses_html(classification) -> str:
+    """Render the v2.0 'Defenses Demonstrated' section as green cards.
+
+    Returns an empty-state message when no defenses were captured -
+    we still show the section so the operator knows we looked.
+    """
+    defenses = getattr(classification, "verified_defenses", []) or []
+    if not defenses:
+        return (
+            '<p class="muted">'
+            'No explicitly stated defenses captured. (The capability map '
+            'above still shows what the assistant said it cannot do.)'
+            '</p>'
+        )
+    cards: list[str] = []
+    for d in defenses:
+        if d.evidence:
+            evidence_items = "".join(
+                f"<li>{_html_escape(e)}</li>" for e in d.evidence
+            )
+        else:
+            evidence_items = "<li class='muted'>(no direct quote captured)</li>"
+        probes_html = (
+            ", ".join(_html_escape(p) for p in d.related_probe_ids)
+            if d.related_probe_ids
+            else "-"
+        )
+        asi_chip = (
+            f"<span class='pill conf-medium'>{_html_escape(d.asi_id)}</span>"
+            if d.asi_id
+            else ""
+        )
+        conf_cls = _confidence_class(d.confidence.value)
+        cards.append(
+            "<article class='defense-card'>"
+            "<header class='risk-header'>"
+            "<span class='pill defense-pill'>✓ defense</span>"
+            f"<h3>{_html_escape(d.behavior_class)}</h3>"
+            f"{asi_chip}"
+            f"<span class='pill {conf_cls}'>conf: {_html_escape(d.confidence.value)}</span>"
+            "</header>"
+            f"<p class='risk-desc'>{_html_escape(d.statement)}</p>"
+            "<div class='risk-grid'>"
+            f"<div><h4>Evidence (quoted)</h4><ul class='evidence'>{evidence_items}</ul></div>"
+            f"<div><h4>Related probes</h4><p class='mono small'>{probes_html}</p></div>"
+            "</div></article>"
+        )
+    return "\n".join(cards)
+
+
 def _render_risks_html(classification) -> str:
     if not classification.risk_flags:
         return '<p class="muted">No risk flags identified.</p>'
@@ -660,6 +760,7 @@ def render_html_report(report: FinalReport) -> str:
         agent_type_html = '<p class="muted">No agent type classified.</p>'
 
     capability_table_html = _render_capabilities_html(classification)
+    defenses_html = _render_verified_defenses_html(classification)
     risks_html = _render_risks_html(classification)
     probes_table_html = _render_probes_html(report)
 
@@ -686,10 +787,14 @@ def render_html_report(report: FinalReport) -> str:
     else:
         recs_html = '<p class="muted">No recommendations produced.</p>'
 
+    defense_count = len(getattr(classification, "verified_defenses", []) or [])
     metric_chips = [
         ("", str(report.probe_count), "Probes"),
         ("err", str(report.error_count), "Probe errors"),
         ("", str(len(classification.capabilities)), "Capabilities"),
+        # v2.0: positive counter for stated defenses (rendered green
+        # via the metric-num.ok class - see CSS).
+        ("ok", str(defense_count), "Defenses"),
         ("sev-high", str(sev_counts["high"]), "High"),
         ("sev-medium", str(sev_counts["medium"]), "Medium"),
         ("sev-low", str(sev_counts["low"]), "Low"),
@@ -734,6 +839,7 @@ def render_html_report(report: FinalReport) -> str:
         "<a href='#summary'>Summary</a>"
         "<a href='#agent-type'>Agent Type</a>"
         "<a href='#capabilities'>Capabilities</a>"
+        "<a href='#defenses'>Defenses</a>"
         "<a href='#risks'>Risks</a>"
         "<a href='#validation'>Contradictions</a>"
         "<a href='#probes'>Raw Probes</a>"
@@ -760,6 +866,9 @@ def render_html_report(report: FinalReport) -> str:
     )
     parts.append(
         f"<section class='card' id='capabilities'><h2>Capability Map</h2>{capability_table_html}</section>"
+    )
+    parts.append(
+        f"<section class='card' id='defenses'><h2>✓ Defenses Demonstrated</h2>{defenses_html}</section>"
     )
     parts.append(
         f"<section class='card' id='risks'><h2>Key Security Observations</h2>{risks_html}</section>"
