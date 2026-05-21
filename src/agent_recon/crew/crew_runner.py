@@ -29,10 +29,18 @@ import json
 import logging
 import threading
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Iterator
+
+
+@contextmanager
+def _null_context() -> Iterator[None]:
+    """A no-op context manager - used when the progress reporter isn't set up
+    (e.g. in some unit-test paths that call _run_probe_crew directly)."""
+    yield
 
 try:
     from crewai import Crew, Process
@@ -403,8 +411,19 @@ class CrewRunner:
         timer.daemon = True
         timer.start()
 
+        # Wrap the kickoff in a polling progress bar so the operator sees
+        # real-time probe-count progress even when CrewAI's step_callback
+        # is silent. The bar polls registry.done_count() every 0.5s and
+        # updates accordingly.
+        kickoff_ctx = (
+            progress.polled_progress(toolset.registry, "Probe Operator (agent)")
+            if progress is not None
+            else _null_context()
+        )
+
         try:
-            crew.kickoff(inputs=inputs)
+            with kickoff_ctx:
+                crew.kickoff(inputs=inputs)
         except Exception as e:
             # The probe crew failed mid-run. Recognise the common
             # context-window-exceeded failure mode and explain it
@@ -626,8 +645,18 @@ class CrewRunner:
                 f"Classifier → Validator → Reporter on {probe_count} probe response(s)",
             )
 
+        # Show a spinner with text while the analysis crew runs. We
+        # can't predict per-task progress (each task is one LLM call we
+        # just wait on), so a spinner is the right shape for this.
+        analysis_ctx = (
+            progress.spinner("Analysis crew thinking (Classifier → Validator → Reporter)…")
+            if progress is not None
+            else _null_context()
+        )
+
         try:
-            crew.kickoff(inputs=inputs)
+            with analysis_ctx:
+                crew.kickoff(inputs=inputs)
         except Exception as e:
             log.exception("Analysis crew execution failed: %s", e)
             if progress is not None:

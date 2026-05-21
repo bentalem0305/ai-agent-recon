@@ -9,6 +9,42 @@ from rich.logging import RichHandler
 from rich.theme import Theme
 
 
+# ---------------------------------------------------------------------------
+# Noisy-message filter
+# ---------------------------------------------------------------------------
+#
+# CrewAI / LiteLLM / asyncio emit a handful of INFO/DEBUG lines that
+# spam the terminal during normal scans. Silencing by logger name
+# doesn't catch them all (the logger names vary across versions and
+# some lines go through the root logger). A message-pattern filter
+# catches them regardless of source.
+
+_NOISY_SUBSTRINGS: tuple[str, ...] = (
+    "Successfully validated tool",
+    "Using config path",
+    "Using selector",
+    "OpenAI API usage",
+    "OpenAI API call failed",
+)
+
+
+class _NoisyMessageFilter(logging.Filter):
+    """Drop log records whose message contains any of the substrings above.
+
+    Attached to the global Rich handler so any logger anywhere - by name
+    or via the root logger - gets these patterns filtered. Errors and
+    other genuinely useful messages are unaffected because they don't
+    match the substrings.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:  # noqa: D401
+        try:
+            msg = record.getMessage()
+        except Exception:  # pragma: no cover - record format failure
+            return True
+        return not any(needle in msg for needle in _NOISY_SUBSTRINGS)
+
+
 _THEME = Theme({
     "scan": "bold cyan",
     "probe": "magenta",
@@ -32,6 +68,13 @@ def configure_logging(verbose: bool = False) -> None:
         rich_tracebacks=True,
         markup=True,
     )
+
+    # Attach the noisy-message filter UNLESS verbose mode is requested.
+    # In verbose mode the operator wants to see all of CrewAI's chatter
+    # for debugging.
+    if not verbose:
+        handler.addFilter(_NoisyMessageFilter())
+
     logging.basicConfig(
         level=level,
         format="%(message)s",

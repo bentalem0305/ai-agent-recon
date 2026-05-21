@@ -15,15 +15,17 @@ gracefully - Rich detects them and prints static lines instead.
 """
 from __future__ import annotations
 
+import threading
 import time
 from contextlib import contextmanager
-from typing import Callable, Iterator
+from typing import Any, Callable, Iterator
 
 from rich.progress import (
     BarColumn,
     Progress,
     SpinnerColumn,
     TextColumn,
+    TimeElapsedColumn,
     TimeRemainingColumn,
 )
 
@@ -129,6 +131,72 @@ class ScanProgress:
                 progress.advance(task, n)
 
             yield advance
+
+    @contextmanager
+    def polled_progress(
+        self,
+        registry: Any,
+        description: str = "Agent probing",
+        poll_interval: float = 0.5,
+    ) -> Iterator[None]:
+        """Show a live progress bar driven by polling the registry.
+
+        Unlike :meth:`probe_progress` this does NOT need an ``advance()``
+        call. A background thread polls ``registry.done_count()`` every
+        ``poll_interval`` seconds and updates the bar accordingly. This
+        lets us show real progress for the CrewAI agentic phase, where
+        we don't reliably get a per-step callback from every version of
+        CrewAI.
+
+        Usage::
+
+            with progress.polled_progress(registry, "Probe Operator"):
+                crew.kickoff(inputs=inputs)
+        """
+        total = max(1, registry.total())
+
+        with Progress(
+            SpinnerColumn(),
+            TextColumn("[bold]{task.description}"),
+            BarColumn(),
+            TextColumn("[cyan]{task.completed}/{task.total}"),
+            TextColumn("[cyan]({task.percentage:>3.0f}%)"),
+            TimeElapsedColumn(),
+            console=console,
+            transient=False,
+        ) as progress:
+            task_id = progress.add_task(description, total=total)
+            stop_event = threading.Event()
+
+            def _poll() -> None:
+                while not stop_event.wait(poll_interval):
+                    try:
+                        progress.update(task_id, completed=registry.done_count())
+                    except Exception:  # pragma: no cover
+                        break
+
+            thread = threading.Thread(target=_poll, daemon=True, name="probe-progress-poll")
+            thread.start()
+
+            try:
+                yield
+            finally:
+                stop_event.set()
+                thread.join(timeout=1.0)
+                try:
+                    progress.update(task_id, completed=registry.done_count())
+                except Exception:  # pragma: no cover
+                    pass
+
+    @contextmanager
+    def spinner(self, description: str) -> Iterator[None]:
+        """Show a spinning indicator with text while a long task runs.
+
+        Useful for phases where we have no probe-level progress signal
+        (e.g. the analysis crew - a single LLM call we just wait on).
+        """
+        with console.status(f"[bold cyan]{description}", spinner="dots"):
+            yield
 
     # ------------------------------------------------------------------
     # Final summary
