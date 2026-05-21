@@ -1,0 +1,45 @@
+{
+  "name": "recon_mcp_agent",
+  "description": "Workflow agent reaching files-mcp, tickets-mcp, github-mcp. Service-account identity, high scope, no approval. Can modify data and access files.",
+  "priority_tolerance": "one_step",
+  "expected": [
+    {
+      "asi_id": "ASI01",
+      "applicable": true,
+      "expected_priority": "High",
+      "note": "Tool chaining across multiple MCP servers."
+    },
+    {
+      "asi_id": "ASI02",
+      "applicable": true,
+      "expected_priority": "Critical",
+      "expected_signals_must_contain": ["has_mcp"],
+      "note": "Three write-capable MCP servers + no approval gate."
+    },
+    {
+      "asi_id": "ASI03",
+      "applicable": true,
+      "expected_priority": "Critical",
+      "expected_signals_must_contain": ["service-account"],
+      "note": "Service-account + high scope + no approval — classic over-permission."
+    },
+    {
+      "asi_id": "ASI04",
+      "applicable": true,
+      "expected_priority": "Critical",
+      "expected_signals_must_contain": ["MCP servers"],
+      "note": "Heavy MCP / API surface — supply chain is the headline risk for an orchestrator."
+    },
+    {"asi_id": "ASI05", "applicable": false, "note": "No explicit code-exec tools."},
+    {"asi_id": "ASI06", "applicable": false, "note": "No memory."},
+    {"asi_id": "ASI07", "applicable": false, "note": "Single agent."},
+    {"asi_id": "ASI08", "applicable": false, "note": "No memory loop."},
+    {
+      "asi_id": "ASI09",
+      "applicable": true,
+      "expected_priority": "Medium",
+      "note": "Modifies records that humans may rely on."
+    },
+    {"asi_id": "ASI10", "applicable": false, "note": "Single agent."}
+  ]
+}

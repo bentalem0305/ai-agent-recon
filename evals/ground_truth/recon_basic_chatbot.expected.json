@@ -1,0 +1,29 @@
+{
+  "name": "recon_basic_chatbot",
+  "description": "Plain chatbot, no tools / memory / RAG / execution. Attack surface is limited to goal-hijack and human-trust over a single-turn chat surface.",
+  "priority_tolerance": "one_step",
+  "expected": [
+    {
+      "asi_id": "ASI01",
+      "applicable": true,
+      "expected_priority": "Medium",
+      "expected_signals_must_contain": ["free-form"],
+      "note": "Accepts free-form instructions but no tools or memory to amplify a hijack."
+    },
+    {"asi_id": "ASI02", "applicable": false, "note": "No tools observed."},
+    {"asi_id": "ASI03", "applicable": false, "note": "No privilege surface."},
+    {"asi_id": "ASI04", "applicable": false, "note": "No external dependencies."},
+    {"asi_id": "ASI05", "applicable": false, "note": "No code execution."},
+    {"asi_id": "ASI06", "applicable": false, "note": "No memory, no RAG."},
+    {"asi_id": "ASI07", "applicable": false, "note": "Single agent."},
+    {"asi_id": "ASI08", "applicable": false, "note": "No chained workflow."},
+    {
+      "asi_id": "ASI09",
+      "applicable": true,
+      "expected_priority": "Medium",
+      "expected_signals_must_contain": ["consumed by humans"],
+      "note": "Outputs go to humans; over-trust is the residual risk even without tools."
+    },
+    {"asi_id": "ASI10", "applicable": false, "note": "Single agent."}
+  ]
+}

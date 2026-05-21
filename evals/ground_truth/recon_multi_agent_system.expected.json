@@ -1,0 +1,66 @@
+{
+  "name": "recon_multi_agent_system",
+  "description": "Planner + executor + reviewer multi-agent ops system. Shared-token identity, high scope, short-term memory, no approval. Tools include delegation and execution.",
+  "priority_tolerance": "one_step",
+  "expected": [
+    {
+      "asi_id": "ASI01",
+      "applicable": true,
+      "expected_priority": "High",
+      "expected_signals_must_contain": ["multi-agent planning"],
+      "note": "Sub-goals can be redirected through the planner."
+    },
+    {
+      "asi_id": "ASI02",
+      "applicable": true,
+      "expected_priority": "High",
+      "note": "Executor invokes tools; modifies data; no approval."
+    },
+    {
+      "asi_id": "ASI03",
+      "applicable": true,
+      "expected_priority": "High",
+      "expected_signals_must_contain": ["shared-token"],
+      "note": "Shared-token identity + high scope blurs accountability."
+    },
+    {
+      "asi_id": "ASI04",
+      "applicable": true,
+      "expected_priority": "Medium",
+      "note": "External APIs but no MCP or RAG surface."
+    },
+    {"asi_id": "ASI05", "applicable": false, "note": "No code-execution tools."},
+    {
+      "asi_id": "ASI06",
+      "applicable": false,
+      "note": "Short-term memory only; no RAG. Real risk is in ASI01 / ASI07 / ASI10, not context poisoning."
+    },
+    {
+      "asi_id": "ASI07",
+      "applicable": true,
+      "expected_priority": "Critical",
+      "expected_signals_must_contain": ["multi_agent=True"],
+      "note": "Delegation between planner / executor / reviewer is the headline risk."
+    },
+    {
+      "asi_id": "ASI08",
+      "applicable": true,
+      "expected_priority": "High",
+      "expected_signals_must_contain": ["multi-agent"],
+      "note": "Multi-agent decisions chain; one agent's output is another's input."
+    },
+    {
+      "asi_id": "ASI09",
+      "applicable": true,
+      "expected_priority": "Medium",
+      "note": "Outputs consumed by humans / downstream systems."
+    },
+    {
+      "asi_id": "ASI10",
+      "applicable": true,
+      "expected_priority": "Critical",
+      "expected_signals_must_contain": ["multi_agent=True"],
+      "note": "Autonomous delegation with no approval gate — rogue-agent risk."
+    }
+  ]
+}

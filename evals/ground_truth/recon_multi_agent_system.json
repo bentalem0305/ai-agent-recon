@@ -1,0 +1,36 @@
+{
+  "target": {
+    "name": "ops-multi-agent",
+    "type": "multi-agent-system",
+    "description": "Multi-agent workflow with planner, executor, and reviewer agents."
+  },
+  "capabilities": {
+    "has_tools": true,
+    "tools": [
+      "plan_task",
+      "execute_step",
+      "review_output",
+      "delegate_to_peer"
+    ],
+    "has_mcp": false,
+    "mcp_servers": [],
+    "has_memory": true,
+    "memory_type": "short-term",
+    "has_rag": false,
+    "rag_sources": [],
+    "can_execute_code": false,
+    "can_call_external_apis": true,
+    "can_send_emails": false,
+    "can_access_files": false,
+    "can_modify_data": true,
+    "can_create_or_update_records": true,
+    "has_human_approval": false,
+    "approval_required_for": [],
+    "multi_agent": true,
+    "agents": ["planner", "executor", "reviewer"],
+    "identity_model": "shared-token",
+    "permission_scope": "high"
+  },
+  "observations": ["agents delegate to each other; shared token; no approval gate"],
+  "raw_recon": {}
+}

@@ -466,5 +466,93 @@ def pt_report(
     event("[ok]", f"Wrote: {output_path}", style="ok")
 
 
+@app.command("eval-mapper")
+def eval_mapper(
+    fixtures_dir: Path = typer.Option(
+        Path("evals/ground_truth"),
+        "--fixtures-dir",
+        "-f",
+        help=(
+            "Directory containing paired <name>.json (recon input) + "
+            "<name>.expected.json (ground truth) fixtures."
+        ),
+    ),
+    output_dir: Path = typer.Option(
+        Path("evals/results"),
+        "--output",
+        "-o",
+        help="Directory to write eval_results.{json,csv,md} into.",
+    ),
+    use_llm: bool = typer.Option(
+        False,
+        "--llm",
+        help=(
+            "Evaluate the CrewAI Mapper agent instead of the deterministic "
+            "rule-based mapper. Requires an LLM key. Per-fixture failures "
+            "fall back to the rule-based mapper so a provider outage doesn't "
+            "wipe out the whole run."
+        ),
+    ),
+    fail_under: Optional[float] = typer.Option(
+        None,
+        "--fail-under",
+        help=(
+            "Exit with code 1 if macro F1 falls below this threshold (0-1). "
+            "Use as a CI gate. Default: never gate."
+        ),
+    ),
+) -> None:
+    """Evaluate the OWASP mapper against the ground-truth fixture set.
+
+    Internal developer tooling: measures whether changes to the mapper
+    (rules or the LLM-driven Mapper agent prompt) move the numbers up
+    or down. Emits three artifacts:
+
+      * eval_results.json — full per-fixture + aggregate metrics
+      * eval_results.csv  — one row per (fixture, ASI) cell, diffable
+      * eval_results.md   — operator-readable summary
+
+    Pass --llm to evaluate the CrewAI Mapper agent end-to-end (slow,
+    needs credentials). Default is the deterministic rule-based mapper.
+    """
+    from .evals import EvalMode, run_evaluation, write_results
+
+    if not fixtures_dir.exists():
+        event("[err]", f"Fixtures directory not found: {fixtures_dir}", style="err")
+        raise typer.Exit(code=2)
+
+    mode = EvalMode.llm if use_llm else EvalMode.rule_based
+    event("[eval]", f"Evaluating mapper in {mode.value} mode against {fixtures_dir} ...", style="scan")
+
+    try:
+        metrics = run_evaluation(fixtures_dir, mode=mode)
+    except Exception as e:
+        event("[err]", f"Eval failed: {e}", style="err")
+        raise typer.Exit(code=2)
+
+    paths = write_results(metrics, output_dir)
+    for p in paths:
+        event("[ok]", f"Wrote: {p}", style="ok")
+
+    agg = metrics.aggregate
+    event(
+        "[eval]",
+        (
+            f"{agg.fixtures_passed}/{agg.total_fixtures} fixtures passed | "
+            f"macro F1 {agg.macro_f1:.3f} | "
+            f"priority within-one-step {agg.priority_within_one_step_rate * 100:.1f}%"
+        ),
+        style=("ok" if agg.fixtures_failed == 0 else "warn"),
+    )
+
+    if fail_under is not None and agg.macro_f1 < fail_under:
+        event(
+            "[err]",
+            f"macro F1 {agg.macro_f1:.3f} below threshold {fail_under:.3f} — failing.",
+            style="err",
+        )
+        raise typer.Exit(code=1)
+
+
 if __name__ == "__main__":
     app()

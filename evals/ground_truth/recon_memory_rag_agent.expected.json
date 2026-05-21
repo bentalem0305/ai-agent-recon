@@ -1,0 +1,56 @@
+{
+  "name": "recon_memory_rag_agent",
+  "description": "RAG + long-term memory knowledge assistant. Lightweight tools (retrieve, store_fact). Can call external APIs. Can NOT modify data.",
+  "priority_tolerance": "one_step",
+  "expected": [
+    {
+      "asi_id": "ASI01",
+      "applicable": true,
+      "expected_priority": "High",
+      "expected_signals_must_contain": ["retrieved content"],
+      "note": "RAG content is an indirect-injection vector; long-term memory persists."
+    },
+    {
+      "asi_id": "ASI02",
+      "applicable": true,
+      "expected_priority": "Medium",
+      "note": "Has tools but read-flavoured; no write/send capability."
+    },
+    {
+      "asi_id": "ASI03",
+      "applicable": true,
+      "expected_priority": "Low",
+      "note": "user-delegated identity, no modify-data privilege."
+    },
+    {
+      "asi_id": "ASI04",
+      "applicable": true,
+      "expected_priority": "High",
+      "expected_signals_must_contain": ["RAG sources"],
+      "note": "Trust in RAG corpora + external APIs is the headline supply-chain risk."
+    },
+    {"asi_id": "ASI05", "applicable": false, "note": "No execution."},
+    {
+      "asi_id": "ASI06",
+      "applicable": true,
+      "expected_priority": "Critical",
+      "expected_signals_must_contain": ["long-term"],
+      "note": "RAG + long-term / vector memory — canonical context-poisoning target."
+    },
+    {"asi_id": "ASI07", "applicable": false, "note": "Single agent."},
+    {
+      "asi_id": "ASI08",
+      "applicable": true,
+      "expected_priority": "Medium",
+      "expected_signals_must_contain": ["retrieval + memory"],
+      "note": "Retrieval + memory can reinforce incorrect state across turns."
+    },
+    {
+      "asi_id": "ASI09",
+      "applicable": true,
+      "expected_priority": "Medium",
+      "note": "Knowledge answers consumed by humans who may over-trust them."
+    },
+    {"asi_id": "ASI10", "applicable": false, "note": "Single agent."}
+  ]
+}

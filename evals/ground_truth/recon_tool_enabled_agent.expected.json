@@ -1,0 +1,45 @@
+{
+  "name": "recon_tool_enabled_agent",
+  "description": "Customer-support agent with read/write tools, email-send, and an approval gate for refund / account-status changes. user-delegated identity, medium scope.",
+  "priority_tolerance": "one_step",
+  "expected": [
+    {
+      "asi_id": "ASI01",
+      "applicable": true,
+      "expected_priority": "High",
+      "expected_signals_must_contain": ["chain tool calls"],
+      "note": "Tools + external APIs amplify the hijack surface."
+    },
+    {
+      "asi_id": "ASI02",
+      "applicable": true,
+      "expected_priority": "High",
+      "expected_signals_must_contain": ["write/update/delete/send-style"],
+      "note": "Send-email, update-record, create-ticket are write actions; only refund gated."
+    },
+    {
+      "asi_id": "ASI03",
+      "applicable": true,
+      "expected_priority": "Medium",
+      "note": "user-delegated identity + medium scope; approval gate softens this."
+    },
+    {
+      "asi_id": "ASI04",
+      "applicable": true,
+      "expected_priority": "Medium",
+      "expected_signals_must_contain": ["external APIs"],
+      "note": "Depends on external APIs whose contracts can change."
+    },
+    {"asi_id": "ASI05", "applicable": false, "note": "No execution capability."},
+    {"asi_id": "ASI06", "applicable": false, "note": "No memory, no RAG."},
+    {"asi_id": "ASI07", "applicable": false, "note": "Single agent."},
+    {"asi_id": "ASI08", "applicable": false, "note": "No memory loop; no chained-decision surface."},
+    {
+      "asi_id": "ASI09",
+      "applicable": true,
+      "expected_priority": "Medium",
+      "note": "Sends customer-facing emails and updates records."
+    },
+    {"asi_id": "ASI10", "applicable": false, "note": "Single agent."}
+  ]
+}
