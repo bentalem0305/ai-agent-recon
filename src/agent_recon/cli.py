@@ -253,7 +253,7 @@ def scan(
     )
     report = runner.run(probes)
 
-    # Write outputs
+    # Write outputs (Phase 3 banner is already open from runner.run()).
     fmt = (output_format or "all").strip()
     paths = write_reports(report, output_dir, formats=(fmt,))
     if not paths:
@@ -266,8 +266,11 @@ def scan(
     for p in paths:
         event("[ok]", f"Wrote: {p}", style="ok")
 
+    # Close Phase 3 + print the final scan-complete banner.
+    runner.mark_scan_complete()
+
     console.print(
-        f"\n[bold green]Done.[/bold green] {len(paths)} report file(s) written to "
+        f"[bold green]Done.[/bold green] {len(paths)} report file(s) written to "
         f"[underline]{output_dir}[/underline]."
     )
 

@@ -119,9 +119,7 @@ class CrewRunner:
     def run(self, probes: list[Probe]) -> FinalReport:
         """Run the full pipeline and return the assembled FinalReport."""
 
-        event("[scan]", f"Starting scan against {self.target_client_config.url}", style="scan")
-        event("[scan]", f"Probe count: {len(probes)}", style="scan")
-        event("[scan]", f"Process mode: {self.process_mode.value}", style="scan")
+        from ..utils.progress import ScanProgress
 
         if Crew is None or Process is None:
             raise RuntimeError(
@@ -157,28 +155,46 @@ class CrewRunner:
             )
             return self._run_deterministic_only(probes, missing_env_var=llm_check.env_var)
 
+        # Set up live structured progress for the whole scan.
+        # Phases: 1) Reconnaissance, 2) Analysis, 3) Writing reports.
+        self._progress = ScanProgress(total_phases=3)
+
         toolset = build_probe_toolset(self.target_client, probes)
         llm = build_llm(self.app_config.llm)
 
-        # ----- Phase 1: agentic probing -----
-        self._run_probe_crew(llm=llm, toolset=toolset)
+        # ----- PHASE 1: probing (agent + safety net) -----
+        self._progress.start_phase(
+            1,
+            "Reconnaissance",
+            detail=(
+                f"Sending {len(probes)} probes to {self.target_client_config.url} "
+                f"(process: {self.process_mode.value})"
+            ),
+        )
 
-        # ----- Phase 2: deterministic safety net -----
+        self._run_probe_crew(llm=llm, toolset=toolset)
         self._run_safety_net(toolset.registry)
 
         probe_results = toolset.registry.ordered_results()
         error_count = sum(1 for r in probe_results if r.error)
         event(
             "[scan]",
-            f"Probing complete. {len(probe_results)}/{len(probes)} responses, {error_count} errors.",
+            f"Probing summary: {len(probe_results)}/{len(probes)} responses, "
+            f"{error_count} errors.",
             style="ok" if error_count == 0 else "warn",
         )
+        self._progress.end_phase()
 
-        # ----- Phase 3: agentic analysis -----
+        # ----- PHASE 2: agentic analysis (Classifier → Validator → Reporter) -----
+        self._progress.start_phase(
+            2,
+            "Analysis (Classifier → Validator → Reporter)",
+        )
         classification, validation, summary, recommendations = self._run_analysis_crew(
             llm=llm,
             probe_results=probe_results,
         )
+        self._progress.end_phase()
 
         target_info = TargetInfo(
             url=self.target_client_config.url,
@@ -197,8 +213,22 @@ class CrewRunner:
             recommendations=recommendations,
         )
 
-        event("[scan]", "Scan complete.", style="ok")
+        # ----- PHASE 3: writing reports happens upstream in cli.py via
+        # write_reports(...). We open the phase here so the [ok] Wrote: ...
+        # lines printed by the report writer fall under the right banner.
+        self._progress.start_phase(3, "Writing reports")
+        # The report writer will emit individual [ok] Wrote: ... lines;
+        # we end the phase + scan from cli.py via mark_scan_complete().
         return report
+
+    def mark_scan_complete(self) -> None:
+        """Called by the CLI after report files are written, to close
+        Phase 3 and print the final scan-complete banner."""
+        if hasattr(self, "_progress"):
+            self._progress.end_phase()
+            self._progress.scan_complete()
+        else:
+            event("[scan]", "Scan complete.", style="ok")
 
     # ------------------------------------------------------------------
     # Deterministic-only fallback (when no LLM credentials are configured)
@@ -296,21 +326,22 @@ class CrewRunner:
         """
 
         agentic_budget = int(getattr(self.app_config.scan, "agentic_probe_budget", 5))
+        progress = getattr(self, "_progress", None)
+
         if agentic_budget <= 0:
             event(
                 "[scan]",
-                "Agentic probe budget = 0; skipping agentic phase entirely. "
+                "Agentic probe budget = 0 — skipping agent demonstration. "
                 "All probes will run via the deterministic safety net.",
                 style="scan",
             )
             return
 
-        event(
-            "[scan]",
-            f"Phase 1: agentic probing (budget = {agentic_budget} probes, "
-            f"rest will run via safety net)...",
-            style="scan",
-        )
+        if progress is not None:
+            progress.agent_start(
+                "Probe Operator",
+                f"demonstration — budget: {agentic_budget} probe(s)",
+            )
 
         probe_agent = ProbeAgentFactory.build(
             llm=llm,
@@ -405,30 +436,49 @@ class CrewRunner:
         finally:
             timer.cancel()
 
+        # Announce the Probe Operator finished, with a count of probes
+        # it actually completed (the registry's done_count). The safety
+        # net will pick up everything else.
+        if progress is not None:
+            done = toolset.registry.done_count()
+            total = toolset.registry.total()
+            progress.agent_done(
+                "Probe Operator",
+                f"{done}/{total} probe(s) done by agent",
+            )
+
     # ------------------------------------------------------------------
     # Phase 2: deterministic safety net
     # ------------------------------------------------------------------
     def _run_safety_net(self, registry: ProbeRegistry) -> None:
-        """Catch any probes the agent skipped, run them deterministically."""
+        """Catch any probes the agent skipped, run them deterministically.
+
+        Uses a live Rich progress bar so the operator sees real-time
+        percentage + ETA instead of one log line per probe. Errors
+        still print as event lines (visible above the bar).
+        """
 
         pending = registry.pending_ids()
         if not pending:
             return
 
-        event(
-            "[safety-net]",
-            f"Agent skipped {len(pending)} probe(s); running them deterministically.",
-            style="warn",
-        )
+        # Use the shared progress reporter if available; otherwise fall
+        # back to plain event lines so this still works in unit tests
+        # that call _run_safety_net() directly.
+        progress = getattr(self, "_progress", None)
+
+        if progress is not None:
+            progress.agent_start(
+                "Safety net",
+                f"{len(pending)} remaining probe(s)",
+            )
 
         rate_limit = max(0.0, float(self.app_config.scan.rate_limit_seconds))
-        for i, pid in enumerate(pending, start=1):
+        error_count_so_far = 0
+
+        def _run_one(i: int, pid: str) -> None:
+            nonlocal error_count_so_far
             probe = registry.probes[pid]
-            event(
-                "[safety-net]",
-                f"({i}/{len(pending)}) {probe.id} [{probe.category}]",
-                style="probe",
-            )
             try:
                 result = registry.run_probe(pid)
             except Exception as e:  # pragma: no cover - defensive
@@ -441,18 +491,41 @@ class CrewRunner:
                     error=f"unhandled_error: {e!r}",
                 )
                 registry.results[pid] = result
+            # Surface errors only - successes are tracked by the bar.
+            if result.error:
+                error_count_so_far += 1
+                event(
+                    "[safety-net]",
+                    f"({i}/{len(pending)}) {probe.id} [{probe.category}] "
+                    f"-> ERROR: {result.error}",
+                    style="err",
+                )
 
-            style = "ok" if not result.error else "err"
+        if progress is not None:
+            with progress.probe_progress(
+                total=len(pending),
+                description="Safety net",
+            ) as advance:
+                for i, pid in enumerate(pending, start=1):
+                    _run_one(i, pid)
+                    advance()
+                    if rate_limit > 0 and i < len(pending):
+                        time.sleep(rate_limit)
+            progress.agent_done(
+                "Safety net",
+                f"{len(pending)} probes, {error_count_so_far} error(s)",
+            )
+        else:
+            # Plain mode (used by tests and the deterministic-only path).
             event(
                 "[safety-net]",
-                f"  -> status={result.http_status} "
-                f"latency_ms={result.latency_ms} "
-                f"error={result.error or 'none'}",
-                style=style,
+                f"Running {len(pending)} probe(s) deterministically.",
+                style="warn",
             )
-
-            if rate_limit > 0 and i < len(pending):
-                time.sleep(rate_limit)
+            for i, pid in enumerate(pending, start=1):
+                _run_one(i, pid)
+                if rate_limit > 0 and i < len(pending):
+                    time.sleep(rate_limit)
 
     # ------------------------------------------------------------------
     # Phase 3: agentic analysis crew
@@ -545,10 +618,23 @@ class CrewRunner:
         # potentially mangle our pre-rendered descriptions).
         inputs: dict[str, Any] = {}
 
+        # Announce the analysis crew under the active phase banner.
+        progress = getattr(self, "_progress", None)
+        if progress is not None:
+            progress.agent_start(
+                "Analysis crew",
+                f"Classifier → Validator → Reporter on {probe_count} probe response(s)",
+            )
+
         try:
             crew.kickoff(inputs=inputs)
         except Exception as e:
             log.exception("Analysis crew execution failed: %s", e)
+            if progress is not None:
+                progress.agent_done(
+                    "Analysis crew",
+                    f"FAILED — {type(e).__name__}",
+                )
             return (
                 ClassificationResult(),
                 ValidationResult(
@@ -560,6 +646,9 @@ class CrewRunner:
                     "We recommend confirming the LLM API key and model are configured correctly.",
                 ],
             )
+
+        if progress is not None:
+            progress.agent_done("Analysis crew")
 
         classification = self._extract_classification(classification_task)
         validation = self._extract_validation(validation_task)
