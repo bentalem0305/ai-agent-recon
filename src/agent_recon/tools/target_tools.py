@@ -44,6 +44,7 @@ except Exception:  # pragma: no cover - fallback shim for test environments
 
 
 from ..models import Probe, ProbeResult
+from ..probe_executor import ProbeExecutor
 from ..target_client import TargetClient
 
 
@@ -73,14 +74,29 @@ class ProbeRegistry:
     results: dict[str, ProbeResult] = field(default_factory=dict)
     aborted: bool = False
     abort_reason: str = ""
+    # v2.0: per-registry executor that handles transport selection,
+    # multi-turn, and differential runs. Built lazily on first use so
+    # existing tests that construct registries directly keep working.
+    executor: ProbeExecutor | None = None
 
     @classmethod
-    def from_probes(cls, target_client: TargetClient, probes: list[Probe]) -> "ProbeRegistry":
-        reg = cls(target_client=target_client)
+    def from_probes(
+        cls,
+        target_client: TargetClient,
+        probes: list[Probe],
+        *,
+        executor: ProbeExecutor | None = None,
+    ) -> "ProbeRegistry":
+        reg = cls(target_client=target_client, executor=executor)
         for p in probes:
             reg.probes[p.id] = p
             reg.order.append(p.id)
         return reg
+
+    def _get_executor(self) -> ProbeExecutor:
+        if self.executor is None:
+            self.executor = ProbeExecutor(self.target_client)
+        return self.executor
 
     def abort(self, reason: str) -> None:
         """Flip the abort flag. Tools will refuse subsequent calls."""
@@ -118,12 +134,20 @@ class ProbeRegistry:
     # ------------------------------------------------------------------
     def run_probe(self, query_id: str) -> ProbeResult:
         """Execute one query by id. Idempotent: returns the cached
-        result if the query was already executed in this run."""
+        result if the query was already executed in this run.
+
+        Dispatches through the per-registry :class:`ProbeExecutor`, which
+        in turn picks the right transport, runs any multi-turn sequence,
+        and handles differential runs. The bedrock safety rule — prompts
+        must come from YAML, never from the LLM — is preserved because
+        the executor only ever reads :attr:`Probe.prompt` and
+        :attr:`ProbeTurn.prompt`.
+        """
         if query_id not in self.probes:
             raise KeyError(f"Unknown query_id: {query_id!r}")
         if query_id in self.results:
             return self.results[query_id]
-        result = self.target_client.send_probe(self.probes[query_id])
+        result = self._get_executor().execute(self.probes[query_id])
         self.results[query_id] = result
         return result
 

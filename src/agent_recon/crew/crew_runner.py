@@ -182,6 +182,10 @@ class CrewRunner:
 
         self._run_probe_crew(llm=llm, toolset=toolset)
         self._run_safety_net(toolset.registry)
+        # v2.0 B: adaptive follow-ups (one round, IDs only from
+        # parent.follow_up_ids). The LLM has no way to author free text
+        # here — it can only pick from the YAML allow-list.
+        self._run_follow_up_phase(llm=llm, registry=toolset.registry)
 
         probe_results = toolset.registry.ordered_results()
         error_count = sum(1 for r in probe_results if r.error)
@@ -545,6 +549,100 @@ class CrewRunner:
                 _run_one(i, pid)
                 if rate_limit > 0 and i < len(pending):
                     time.sleep(rate_limit)
+
+    # ------------------------------------------------------------------
+    # Phase 2.5: adaptive follow-ups (v2.0 B)
+    # ------------------------------------------------------------------
+    def _run_follow_up_phase(self, *, llm: Any, registry: ProbeRegistry) -> None:
+        """Run one round of adaptive follow-up probes.
+
+        For every probe with a populated ``follow_up_ids``, ask the LLM
+        to pick ONE follow-up ID from the allow-list (or skip). If a
+        valid ID is chosen, execute that probe through the registry.
+        Recorded on the parent result's ``follow_up_probe_id`` field.
+
+        Safety floors:
+          * No follow-up of a follow-up (depth cap = 1).
+          * Selector output is rejected unless it's a JSON
+            ``{"chosen_id": ...}`` matching an allowed ID.
+          * Selector failures = skip, never invent.
+        """
+        from ..follow_ups import LlmFollowUpSelector, plan_follow_up
+
+        # Build the universe of probes that have at least one follow-up.
+        parents_with_followups = [
+            registry.probes[pid]
+            for pid in registry.order
+            if registry.probes[pid].follow_up_ids
+            and pid in registry.results
+        ]
+        if not parents_with_followups:
+            return
+
+        progress = getattr(self, "_progress", None)
+        if progress is not None:
+            progress.agent_start(
+                "Follow-up selector",
+                f"{len(parents_with_followups)} probe(s) declare follow-ups",
+            )
+
+        # Wrap CrewAI's llm object behind a simple text-in/text-out shim
+        # so :mod:`follow_ups` doesn't import CrewAI directly.
+        def _llm_call(prompt: str) -> str:
+            try:
+                # CrewAI LLM objects expose .call() or are callables.
+                if hasattr(llm, "call"):
+                    out = llm.call(prompt)
+                else:
+                    out = llm(prompt)
+            except Exception as e:
+                log.debug("Follow-up selector LLM call failed: %s", e)
+                return ""
+            return out if isinstance(out, str) else str(out)
+
+        selector = LlmFollowUpSelector(llm_call=_llm_call)
+        chosen_count = 0
+
+        for parent in parents_with_followups:
+            parent_result = registry.results[parent.id]
+            plan = plan_follow_up(
+                parent,
+                parent_result,
+                available_probes=registry.probes,
+                selector=selector,
+                already_run=set(registry.results.keys()),
+            )
+            if plan.chosen_id is None:
+                event(
+                    "[follow-up]",
+                    f"{parent.id}: skip ({plan.reason})",
+                    style="info",
+                )
+                continue
+            # Run the chosen follow-up through the registry — same
+            # transport / multi-turn / differential logic applies.
+            try:
+                registry.run_probe(plan.chosen_id)
+            except Exception as e:  # pragma: no cover - defensive
+                event(
+                    "[follow-up]",
+                    f"{parent.id} → {plan.chosen_id}: ERROR {e!r}",
+                    style="err",
+                )
+                continue
+            parent_result.follow_up_probe_id = plan.chosen_id
+            chosen_count += 1
+            event(
+                "[follow-up]",
+                f"{parent.id} → {plan.chosen_id}",
+                style="probe",
+            )
+
+        if progress is not None:
+            progress.agent_done(
+                "Follow-up selector",
+                f"{chosen_count} follow-up(s) chosen and run",
+            )
 
     # ------------------------------------------------------------------
     # Phase 3: agentic analysis crew
