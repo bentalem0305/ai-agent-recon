@@ -664,16 +664,7 @@ class CrewRunner:
         # leaving the Classifier with almost no data and producing
         # nearly empty reports.
         probe_results_payload = [
-            {
-                "probe_id": r.probe_id,
-                "category": r.category,
-                "probe_type": r.probe_type.value,
-                "prompt": r.prompt,
-                "raw_response": (r.raw_response or "")[:4000],
-                "http_status": r.http_status,
-                "error": r.error,
-            }
-            for r in probe_results
+            _build_classifier_payload_entry(r) for r in probe_results
         ]
         probe_results_json = json.dumps(probe_results_payload, ensure_ascii=False)
         target_url = self.target_client_config.url
@@ -942,6 +933,66 @@ def _make_step_callback(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _build_classifier_payload_entry(r: ProbeResult) -> dict[str, Any]:
+    """Build one probe-result entry for the classifier payload.
+
+    The legacy v1.x fields are always present so the classifier sees a
+    stable shape. The v2.0 fields (``turns``, ``differential``,
+    ``follow_up_probe_id``) are added ONLY when populated so probes
+    that don't opt into v2 features don't bloat the payload.
+
+    Per-turn responses and per-run responses are truncated more
+    aggressively than the parent response (1500 chars vs 4000) to keep
+    the classifier's context budget in check on multi-turn /
+    differential probes.
+    """
+    entry: dict[str, Any] = {
+        "probe_id": r.probe_id,
+        "category": r.category,
+        "probe_type": r.probe_type.value,
+        "prompt": r.prompt,
+        "raw_response": (r.raw_response or "")[:4000],
+        "http_status": r.http_status,
+        "error": r.error,
+    }
+    # v2.0 A — multi-turn: include each turn's prompt + response so the
+    # classifier can read the whole conversation, not just the last turn.
+    if r.turn_responses:
+        entry["turns"] = [
+            {
+                "turn_index": t.turn_index,
+                "prompt": t.prompt,
+                "raw_response": (t.raw_response or "")[:1500],
+                "http_status": t.http_status,
+                "error": t.error,
+            }
+            for t in r.turn_responses
+        ]
+    # v2.0 C — differential runs: surface all N responses so the
+    # classifier sees the disagreement explicitly. The variance summary
+    # is included verbatim so the classifier can flag inconsistency.
+    if r.differential is not None:
+        entry["differential"] = {
+            "unique_responses": r.differential.unique_responses,
+            "response_length_spread": r.differential.response_length_spread,
+            "runs": [
+                {
+                    "run_index": run.run_index,
+                    "raw_response": (run.raw_response or "")[:1500],
+                    "http_status": run.http_status,
+                    "error": run.error,
+                }
+                for run in r.differential.runs
+            ],
+        }
+    # v2.0 B — adaptive follow-ups: surface the parent→child link.
+    # The follow-up's own ProbeResult appears as a separate entry in
+    # the payload; this just tells the classifier they're related.
+    if r.follow_up_probe_id:
+        entry["follow_up_probe_id"] = r.follow_up_probe_id
+    return entry
+
 
 def _safe_load_json(raw: str | bytes | None) -> Any:
     """Try to parse JSON, stripping common LLM artifacts (code fences, prose)."""

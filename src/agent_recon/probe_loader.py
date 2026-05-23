@@ -66,6 +66,25 @@ def load_probes(path: str | Path) -> list[Probe]:
     if not probes:
         raise ProbeLoadError(f"Probe file {p} is empty.")
 
+    # v2.0: cross-check follow_up_ids references against the dataset.
+    # The runtime selector already filters unknown / self IDs, but
+    # surfacing the typo at load time gives the operator immediate
+    # feedback instead of a silent "selector_chose_skip" at scan time.
+    all_ids = {probe.id for probe in probes}
+    for probe in probes:
+        for fid in probe.follow_up_ids:
+            if fid == probe.id:
+                raise ProbeLoadError(
+                    f"Probe {probe.id!r} declares a self-referential "
+                    f"follow_up_id ({fid!r}). Remove it."
+                )
+            if fid not in all_ids:
+                raise ProbeLoadError(
+                    f"Probe {probe.id!r} declares follow_up_id {fid!r}, "
+                    f"but no probe with that id is defined in {p}. "
+                    f"Add the probe or remove the reference."
+                )
+
     return probes
 
 

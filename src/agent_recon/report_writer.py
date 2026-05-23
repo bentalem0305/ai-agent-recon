@@ -156,13 +156,87 @@ def _format_risk(risk: RiskFinding) -> str:
 def _format_probe_row(r: ProbeResult) -> str:
     short = _md_escape_cell(_shorten(r.raw_response, 180))
     err = _md_escape_cell(r.error or "")
+    # Tag v2 probes inline so the reader can spot multi-turn /
+    # differential / follow-up rows even before the details section.
+    tags: list[str] = []
+    if r.turn_responses:
+        tags.append(f"multi-turn ({len(r.turn_responses)})")
+    if r.differential is not None:
+        tags.append(f"differential ({len(r.differential.runs)})")
+    if r.follow_up_probe_id:
+        tags.append(f"→ {r.follow_up_probe_id}")
+    tag_suffix = f" [{'; '.join(tags)}]" if tags else ""
     return (
-        f"| {_md_escape_cell(r.probe_id)} "
+        f"| {_md_escape_cell(r.probe_id + tag_suffix)} "
         f"| {_md_escape_cell(r.category)} "
         f"| {_md_escape_cell(_shorten(r.prompt, 140))} "
         f"| {short} "
         f"| {err} |"
     )
+
+
+def _format_v2_details_md(probe_results: list[ProbeResult]) -> list[str]:
+    """Render a per-probe expansion for probes that opted into v2 features.
+
+    Returns a list of lines (so the caller can stitch them into the
+    larger document). Returns an empty list when no v2 fields were
+    used; the section header is suppressed entirely in that case so
+    v1-only reports stay visually identical to v1.x.
+    """
+    v2_probes = [
+        r for r in probe_results
+        if r.turn_responses or r.differential is not None or r.follow_up_probe_id
+    ]
+    if not v2_probes:
+        return []
+
+    lines: list[str] = ["## Multi-Turn / Differential / Follow-up Details", ""]
+    lines.append(
+        "_Per-probe expansion for probes that used v2.0 multi-turn, "
+        "differential, or adaptive follow-up features. The raw-probe "
+        "table above shows the summary; this section is the full record._"
+    )
+    lines.append("")
+    for r in v2_probes:
+        lines.append(f"### `{r.probe_id}` — {r.category}")
+        lines.append("")
+        # Multi-turn block
+        if r.turn_responses:
+            lines.append(f"**Multi-turn ({len(r.turn_responses)} turn(s)):**")
+            lines.append("")
+            for t in r.turn_responses:
+                resp = _shorten(t.raw_response, 400) if t.raw_response else "_(empty)_"
+                err = f"  _error: {t.error}_" if t.error else ""
+                lines.append(f"- **Turn {t.turn_index}** — _{_shorten(t.prompt, 100)}_")
+                lines.append(f"  - Response: {resp}{err}")
+            lines.append("")
+        # Differential block
+        if r.differential is not None:
+            d = r.differential
+            lines.append(
+                f"**Differential ({len(d.runs)} run(s)):** "
+                f"`unique_responses={d.unique_responses}`, "
+                f"`response_length_spread={d.response_length_spread}`"
+            )
+            if d.unique_responses > 1:
+                lines.append("")
+                lines.append(
+                    "> ⚠ Inconsistent: the assistant gave more than one "
+                    "distinct answer across repeated runs of the same probe. "
+                    "Read each run for the operator-relevant disagreement."
+                )
+            lines.append("")
+            for run in d.runs:
+                resp = _shorten(run.raw_response, 400) if run.raw_response else "_(empty)_"
+                err = f"  _error: {run.error}_" if run.error else ""
+                lines.append(f"- **Run {run.run_index}**: {resp}{err}")
+            lines.append("")
+        # Follow-up link
+        if r.follow_up_probe_id:
+            lines.append(f"**Adaptive follow-up:** ran `{r.follow_up_probe_id}` after this probe.")
+            lines.append("")
+        lines.append("")
+    return lines
 
 
 def render_markdown_report(report: FinalReport) -> str:
@@ -289,6 +363,11 @@ def render_markdown_report(report: FinalReport) -> str:
     for r in report.probe_results:
         lines.append(_format_probe_row(r))
     lines.append("")
+
+    # v2.0 detail expansion for multi-turn / differential / follow-up probes.
+    # Suppressed entirely when no v2 fields were used so v1-only reports
+    # look unchanged.
+    lines.extend(_format_v2_details_md(report.probe_results))
 
     # Recommendations
     lines.append("## Recommendations")
@@ -696,6 +775,121 @@ def _render_risks_html(classification) -> str:
     return "\n".join(cards)
 
 
+def _v2_badge_html(r: ProbeResult) -> str:
+    """Inline pill badges that mark v2 probes in the raw-results table."""
+    badges: list[str] = []
+    if r.turn_responses:
+        badges.append(
+            f"<span class='pill conf-medium'>multi-turn × {len(r.turn_responses)}</span>"
+        )
+    if r.differential is not None:
+        cls = "sev-medium" if r.differential.unique_responses > 1 else "conf-medium"
+        badges.append(
+            f"<span class='pill {cls}'>diff × {len(r.differential.runs)}"
+            f" ({r.differential.unique_responses} unique)</span>"
+        )
+    if r.follow_up_probe_id:
+        badges.append(
+            f"<span class='pill conf-medium'>→ {_html_escape(r.follow_up_probe_id)}</span>"
+        )
+    return " ".join(badges)
+
+
+def _render_v2_details_html(report: FinalReport) -> str:
+    """Render the per-probe v2 expansion (multi-turn / differential / follow-up).
+
+    Returns an empty string when no probe used a v2 feature — caller
+    suppresses the whole section in that case so a v1-only report has
+    no extra noise.
+    """
+    v2_probes = [
+        r for r in report.probe_results
+        if r.turn_responses or r.differential is not None or r.follow_up_probe_id
+    ]
+    if not v2_probes:
+        return ""
+
+    cards: list[str] = []
+    for r in v2_probes:
+        sections: list[str] = []
+        # Multi-turn
+        if r.turn_responses:
+            rows = "".join(
+                "<tr>"
+                f"<td class='mono small'>turn {t.turn_index}</td>"
+                f"<td>{_html_escape(_shorten(t.prompt, 200))}</td>"
+                f"<td><details><summary>{_html_escape(_shorten(t.raw_response or '', 220))}</summary>"
+                f"<pre class='full-response'>{_html_escape(t.raw_response or '')}</pre></details></td>"
+                f"<td class='mono small'>{t.http_status if t.http_status is not None else '-'}</td>"
+                f"<td>{_html_escape(t.error or '')}</td>"
+                "</tr>"
+                for t in r.turn_responses
+            )
+            sections.append(
+                f"<h4>Multi-turn ({len(r.turn_responses)} turn(s))</h4>"
+                "<div class='scroll-wrap'><table class='data-table'>"
+                "<thead><tr><th>Turn</th><th>Prompt</th><th>Response</th>"
+                "<th>Status</th><th>Error</th></tr></thead>"
+                f"<tbody>{rows}</tbody></table></div>"
+            )
+        # Differential
+        if r.differential is not None:
+            d = r.differential
+            warn = ""
+            if d.unique_responses > 1:
+                warn = (
+                    "<p class='muted'><strong>⚠ Inconsistent</strong> — "
+                    "the assistant gave more than one distinct answer "
+                    "across repeated runs of the same probe. "
+                    "Read each run for the operator-relevant disagreement.</p>"
+                )
+            rows = "".join(
+                "<tr>"
+                f"<td class='mono small'>run {run.run_index}</td>"
+                f"<td><details><summary>{_html_escape(_shorten(run.raw_response or '', 220))}</summary>"
+                f"<pre class='full-response'>{_html_escape(run.raw_response or '')}</pre></details></td>"
+                f"<td class='mono small'>{run.http_status if run.http_status is not None else '-'}</td>"
+                f"<td>{_html_escape(run.error or '')}</td>"
+                "</tr>"
+                for run in d.runs
+            )
+            sections.append(
+                f"<h4>Differential ({len(d.runs)} run(s)) — "
+                f"unique={d.unique_responses}, length-spread={d.response_length_spread}</h4>"
+                f"{warn}"
+                "<div class='scroll-wrap'><table class='data-table'>"
+                "<thead><tr><th>Run</th><th>Response</th>"
+                "<th>Status</th><th>Error</th></tr></thead>"
+                f"<tbody>{rows}</tbody></table></div>"
+            )
+        # Follow-up
+        if r.follow_up_probe_id:
+            sections.append(
+                f"<p><strong>Adaptive follow-up:</strong> ran "
+                f"<code>{_html_escape(r.follow_up_probe_id)}</code> after this probe.</p>"
+            )
+
+        cards.append(
+            "<article class='v2-details-card'>"
+            f"<header><h3><code>{_html_escape(r.probe_id)}</code> — "
+            f"{_html_escape(r.category)}</h3></header>"
+            + "".join(sections)
+            + "</article>"
+        )
+
+    return (
+        "<section class='card' id='v2-details'>"
+        "<h2>Multi-Turn / Differential / Follow-up Details</h2>"
+        "<p class='muted'>"
+        "Per-probe expansion for probes that used v2.0 multi-turn, "
+        "differential, or adaptive follow-up features. The raw-probe "
+        "table above shows the summary; this section is the full record."
+        "</p>"
+        + "".join(cards)
+        + "</section>"
+    )
+
+
 def _render_probes_html(report: FinalReport) -> str:
     rows: list[str] = []
     for r in report.probe_results:
@@ -708,9 +902,13 @@ def _render_probes_html(report: FinalReport) -> str:
         full = _html_escape(r.raw_response or "")
         latency_html = f"{r.latency_ms:.0f} ms" if r.latency_ms is not None else "-"
         data_attr = _html_escape(f"{r.probe_id} {r.category} {r.prompt}")
+        v2_badges = _v2_badge_html(r)
+        probe_id_cell = _html_escape(r.probe_id)
+        if v2_badges:
+            probe_id_cell = f"{probe_id_cell}<br>{v2_badges}"
         rows.append(
             f"<tr data-row=\"{data_attr}\">"
-            f"<td class='mono small'>{_html_escape(r.probe_id)}</td>"
+            f"<td class='mono small'>{probe_id_cell}</td>"
             f"<td>{_html_escape(r.category)}</td>"
             f"<td>{_html_escape(r.probe_type.value)}</td>"
             f"<td>{_html_escape(_shorten(r.prompt, 140))}</td>"
@@ -763,6 +961,7 @@ def render_html_report(report: FinalReport) -> str:
     defenses_html = _render_verified_defenses_html(classification)
     risks_html = _render_risks_html(classification)
     probes_table_html = _render_probes_html(report)
+    v2_details_html = _render_v2_details_html(report)
 
     def _bullets(items: list[str]) -> str:
         if not items:
@@ -887,6 +1086,7 @@ def render_html_report(report: FinalReport) -> str:
     )
     parts.append(
         f"<section class='card' id='probes'><h2>Raw Probe Results</h2>{probes_table_html}</section>"
+        + v2_details_html
     )
     parts.append(
         f"<section class='card' id='recommendations'><h2>Recommendations</h2>{recs_html}</section>"
