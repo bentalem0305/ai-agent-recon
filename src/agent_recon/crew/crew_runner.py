@@ -608,10 +608,13 @@ class CrewRunner:
             )
 
         rate_limit = max(0.0, float(self.app_config.scan.rate_limit_seconds))
-        error_count_so_far = 0
+        threads = max(1, int(getattr(self.app_config.scan, "threads", 1)))
+        # Cap by len(pending) — no point spinning up more workers than work.
+        threads = min(threads, len(pending))
+        error_count = threading.Lock()
+        error_count_so_far = [0]
 
         def _run_one(i: int, pid: str) -> None:
-            nonlocal error_count_so_far
             probe = registry.probes[pid]
             try:
                 result = registry.run_probe(pid)
@@ -627,7 +630,8 @@ class CrewRunner:
                 registry.results[pid] = result
             # Surface errors only - successes are tracked by the bar.
             if result.error:
-                error_count_so_far += 1
+                with error_count:
+                    error_count_so_far[0] += 1
                 where = _describe_v2_error_location(result)
                 where_suffix = f" ({where})" if where else ""
                 event(
@@ -638,18 +642,40 @@ class CrewRunner:
                 )
 
         if progress is not None:
+            description = (
+                f"Safety net ({threads} threads)" if threads > 1 else "Safety net"
+            )
             with progress.probe_progress(
                 total=len(pending),
-                description="Safety net",
+                description=description,
             ) as advance:
-                for i, pid in enumerate(pending, start=1):
-                    _run_one(i, pid)
-                    advance()
-                    if rate_limit > 0 and i < len(pending):
-                        time.sleep(rate_limit)
+                if threads <= 1:
+                    # Sequential path — exactly v1.x behaviour. The
+                    # rate_limit sleeps between consecutive probes.
+                    for i, pid in enumerate(pending, start=1):
+                        _run_one(i, pid)
+                        advance()
+                        if rate_limit > 0 and i < len(pending):
+                            time.sleep(rate_limit)
+                else:
+                    # Parallel path — ThreadPoolExecutor across pending
+                    # probes. Each probe is one unit of work (multi-turn
+                    # and differential runs of the same probe stay in
+                    # one thread — turns can't be parallelized
+                    # semantically). ``rate_limit`` becomes minimum
+                    # spacing between submissions so operators can still
+                    # throttle concurrent load on the target.
+                    self._run_safety_net_threaded(
+                        pending=pending,
+                        threads=threads,
+                        rate_limit=rate_limit,
+                        run_one=_run_one,
+                        advance=advance,
+                    )
             progress.agent_done(
                 "Safety net",
-                f"{len(pending)} probes, {error_count_so_far} error(s)",
+                f"{len(pending)} probes, {error_count_so_far[0]} error(s)"
+                + (f", {threads} thread(s)" if threads > 1 else ""),
             )
         else:
             # Plain mode (used by tests and the deterministic-only path).
@@ -658,10 +684,70 @@ class CrewRunner:
                 f"Running {len(pending)} probe(s) deterministically.",
                 style="warn",
             )
+            if threads <= 1:
+                for i, pid in enumerate(pending, start=1):
+                    _run_one(i, pid)
+                    if rate_limit > 0 and i < len(pending):
+                        time.sleep(rate_limit)
+            else:
+                self._run_safety_net_threaded(
+                    pending=pending,
+                    threads=threads,
+                    rate_limit=rate_limit,
+                    run_one=_run_one,
+                    advance=lambda: None,
+                )
+
+    def _run_safety_net_threaded(
+        self,
+        *,
+        pending: list[str],
+        threads: int,
+        rate_limit: float,
+        run_one: Any,
+        advance: Any,
+    ) -> None:
+        """Run pending probes concurrently in a thread pool.
+
+        Probes are I/O-bound (HTTP requests to the target), so threading
+        gives near-linear speedup on large datasets without needing async
+        refactoring or process pools. The GIL is released during socket
+        I/O, which is where probes spend ~all their time.
+
+        ``rate_limit`` here acts as minimum spacing between probe
+        *submissions* (not completions). This lets operators still
+        throttle concurrent load on a fragile target — e.g.
+        ``--threads 5 --rate-limit 0.2`` caps starts at ~5/sec with
+        up to 5 in flight at any moment.
+
+        Failures inside a worker are logged but never propagated; one
+        bad probe must not abort a 60-probe scan.
+        """
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+
+        event(
+            "[safety-net]",
+            f"Running {len(pending)} probe(s) in parallel ({threads} threads).",
+            style="scan",
+        )
+
+        with ThreadPoolExecutor(
+            max_workers=threads,
+            thread_name_prefix="probe",
+        ) as pool:
+            futures = []
             for i, pid in enumerate(pending, start=1):
-                _run_one(i, pid)
+                futures.append(pool.submit(run_one, i, pid))
+                # Inter-submission throttle so concurrent load on the
+                # target stays bounded even at high --threads.
                 if rate_limit > 0 and i < len(pending):
                     time.sleep(rate_limit)
+            for fut in as_completed(futures):
+                try:
+                    fut.result()  # raises if the worker raised
+                except Exception:  # pragma: no cover - defensive
+                    log.exception("Probe worker raised; safety net continuing.")
+                advance()
 
     # ------------------------------------------------------------------
     # Phase 2.5: adaptive follow-ups (v2.0 B)

@@ -609,6 +609,275 @@ def test_no_follow_ups_flag_skips_phase(monkeypatch: pytest.MonkeyPatch) -> None
     assert captured["init_kwargs"]["skip_follow_ups"] is True
 
 
+# ---------------------------------------------------------------------------
+# --threads parallel safety-net execution
+# ---------------------------------------------------------------------------
+
+def test_threads_flag_rejected_outside_valid_range(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Values outside 1..32 must exit non-zero with a clear error."""
+    from typer.testing import CliRunner
+
+    from agent_recon.cli import app
+
+    import agent_recon.cli as cli_mod
+    monkeypatch.setattr(cli_mod, "write_reports", lambda *a, **kw: [])
+
+    runner = CliRunner()
+    for bad in ("0", "33", "-1", "1000"):
+        result = runner.invoke(
+            app,
+            [
+                "--no-banner",
+                "scan",
+                "--target-url", "http://stub",
+                "--probe-file", "datasets/probes.v2_examples.yaml",
+                "--threads", bad,
+            ],
+        )
+        assert result.exit_code != 0, f"--threads {bad} should reject"
+        out = result.stdout.lower()
+        assert (
+            "threads" in out or "1 and 32" in out or "invalid" in out
+        ), f"unhelpful error for --threads {bad}: {result.stdout!r}"
+
+
+def test_threads_flag_plumbs_value_to_config(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The CLI must propagate --threads into ScanConfig.threads."""
+    from typer.testing import CliRunner
+
+    from agent_recon.cli import app
+
+    captured: dict[str, Any] = {}
+
+    class _StubRunner:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            captured["app_config"] = kwargs["app_config"]
+
+        def run(self, probes: list[Any]) -> Any:
+            from agent_recon.models import (
+                ClassificationResult, FinalReport, TargetInfo,
+                ValidationResult,
+            )
+            return FinalReport(
+                target=TargetInfo(url="http://stub"),
+                probe_count=0, error_count=0,
+                classification=ClassificationResult(),
+                validation=ValidationResult(),
+            )
+
+        def mark_scan_complete(self) -> None:
+            return None
+
+    import agent_recon.cli as cli_mod
+    monkeypatch.setattr(cli_mod, "write_reports", lambda *a, **kw: [])
+    import agent_recon.crew.crew_runner as runner_mod
+    monkeypatch.setattr(runner_mod, "CrewRunner", _StubRunner)
+
+    runner = CliRunner()
+    runner.invoke(
+        app,
+        [
+            "--no-banner",
+            "scan",
+            "--target-url", "http://stub",
+            "--probe-file", "datasets/probes.v2_examples.yaml",
+            "--threads", "8",
+        ],
+    )
+    assert captured["app_config"].scan.threads == 8
+
+
+def test_safety_net_runs_probes_in_parallel_when_threads_gt_1() -> None:
+    """End-to-end behavior: with threads > 1 the safety net actually
+    overlaps probe execution. We measure parallelism by giving each
+    "probe" an artificial 100ms delay and confirming the wall-clock
+    total is much less than the serial total."""
+    import time
+
+    from agent_recon.config import AppConfig
+    from agent_recon.crew.crew_runner import CrewRunner
+    from agent_recon.target_client import TargetClientConfig
+    from agent_recon.tools.target_tools import ProbeRegistry
+
+    class _SlowClient:
+        """Fake target client that sleeps 100ms before returning."""
+
+        class _Cfg:
+            method = "POST"
+            url = "http://stub"
+            timeout = 30.0
+
+        config = _Cfg()
+
+        def send_probe(self, probe: Any) -> Any:
+            time.sleep(0.1)
+            from agent_recon.models import ProbeResult
+            return ProbeResult(
+                probe_id=probe.id, category=probe.category,
+                probe_type=probe.probe_type, prompt=probe.prompt,
+                raw_response="ok", http_status=200,
+            )
+
+    from agent_recon.models import Probe, ProbeType
+
+    probes = [
+        Probe(id=f"P{i}", category="c", probe_type=ProbeType.direct,
+              prompt="hi", goal="g")
+        for i in range(8)
+    ]
+    cfg = AppConfig()
+    cfg.scan.threads = 8
+    cfg.scan.rate_limit_seconds = 0.0
+
+    runner = CrewRunner(
+        app_config=cfg,
+        target_client_config=TargetClientConfig(url="http://stub"),
+    )
+    registry = ProbeRegistry.from_probes(_SlowClient(), probes)  # type: ignore[arg-type]
+    registry.executor = None  # force lazy build via the slow client
+
+    t0 = time.perf_counter()
+    runner._run_safety_net(registry)
+    elapsed = time.perf_counter() - t0
+
+    # 8 probes × 100ms sequential = 800ms; 8 threads should bring it to
+    # ~150-300ms after thread-pool overhead. Generous bound for CI.
+    assert elapsed < 0.5, f"parallel safety net too slow ({elapsed:.3f}s)"
+    # And every probe got a result.
+    assert len(registry.results) == 8
+
+
+def test_safety_net_preserves_result_ordering_under_threads() -> None:
+    """Probes complete out-of-order under threads, but
+    ``ordered_results()`` must still return them in YAML / dataset order."""
+    import random
+    import time
+
+    from agent_recon.config import AppConfig
+    from agent_recon.crew.crew_runner import CrewRunner
+    from agent_recon.models import Probe, ProbeResult, ProbeType
+    from agent_recon.target_client import TargetClientConfig
+    from agent_recon.tools.target_tools import ProbeRegistry
+
+    class _JitterClient:
+        class _Cfg:
+            method = "POST"
+            url = "http://stub"
+            timeout = 30.0
+
+        config = _Cfg()
+
+        def send_probe(self, probe: Any) -> Any:
+            time.sleep(random.uniform(0.01, 0.05))
+            return ProbeResult(
+                probe_id=probe.id, category=probe.category,
+                probe_type=probe.probe_type, prompt=probe.prompt,
+                raw_response=f"r-{probe.id}", http_status=200,
+            )
+
+    probes = [
+        Probe(id=f"P{i:02d}", category="c", probe_type=ProbeType.direct,
+              prompt="hi", goal="g")
+        for i in range(10)
+    ]
+    cfg = AppConfig()
+    cfg.scan.threads = 6
+    cfg.scan.rate_limit_seconds = 0.0
+
+    runner = CrewRunner(
+        app_config=cfg,
+        target_client_config=TargetClientConfig(url="http://stub"),
+    )
+    registry = ProbeRegistry.from_probes(_JitterClient(), probes)  # type: ignore[arg-type]
+    runner._run_safety_net(registry)
+
+    ordered = registry.ordered_results()
+    assert [r.probe_id for r in ordered] == [p.id for p in probes]
+
+
+def test_safety_net_threads_capped_to_pending_count() -> None:
+    """If pending probes < threads, we shouldn't spin up extra workers.
+    Asserts via thread-pool naming (we can't observe the pool size
+    directly, but we can confirm nothing crashes when threads >> work)."""
+    from agent_recon.config import AppConfig
+    from agent_recon.crew.crew_runner import CrewRunner
+    from agent_recon.models import Probe, ProbeResult, ProbeType
+    from agent_recon.target_client import TargetClientConfig
+    from agent_recon.tools.target_tools import ProbeRegistry
+
+    class _InstantClient:
+        class _Cfg:
+            method = "POST"
+            url = "http://stub"
+            timeout = 30.0
+
+        config = _Cfg()
+
+        def send_probe(self, probe: Any) -> Any:
+            return ProbeResult(
+                probe_id=probe.id, category=probe.category,
+                probe_type=probe.probe_type, prompt=probe.prompt,
+                raw_response="ok", http_status=200,
+            )
+
+    cfg = AppConfig()
+    cfg.scan.threads = 32
+    cfg.scan.rate_limit_seconds = 0.0
+    probes = [
+        Probe(id=f"P{i}", category="c", probe_type=ProbeType.direct,
+              prompt="hi", goal="g")
+        for i in range(3)  # 3 probes, but 32 threads requested
+    ]
+    runner = CrewRunner(
+        app_config=cfg,
+        target_client_config=TargetClientConfig(url="http://stub"),
+    )
+    registry = ProbeRegistry.from_probes(_InstantClient(), probes)  # type: ignore[arg-type]
+    # Should not raise; all 3 probes complete.
+    runner._run_safety_net(registry)
+    assert len(registry.results) == 3
+
+
+def test_probe_executor_transport_cache_thread_safe() -> None:
+    """Concurrent calls to ``ProbeExecutor`` from many threads must NOT
+    produce duplicate transport instances for the same kind."""
+    import threading
+
+    from agent_recon.models import TransportKind
+    from agent_recon.probe_executor import ProbeExecutor
+
+    class _StubClient:
+        class _Cfg:
+            method = "POST"
+            url = "http://stub"
+            timeout = 30.0
+
+        config = _Cfg()
+
+    ex = ProbeExecutor(_StubClient())  # type: ignore[arg-type]
+    barrier = threading.Barrier(16)
+    seen: list[Any] = []
+    seen_lock = threading.Lock()
+
+    def _race() -> None:
+        barrier.wait()
+        t = ex._get_transport(TransportKind.http)
+        with seen_lock:
+            seen.append(id(t))
+
+    threads_ = [threading.Thread(target=_race) for _ in range(16)]
+    for t in threads_:
+        t.start()
+    for t in threads_:
+        t.join()
+
+    # Every thread should have got the exact same transport instance.
+    assert len(set(seen)) == 1, (
+        f"transport cache produced {len(set(seen))} distinct instances under "
+        f"concurrent access — should be exactly 1"
+    )
+
+
 def test_runner_skip_follow_ups_short_circuits_phase(monkeypatch: pytest.MonkeyPatch) -> None:
     """When ``CrewRunner.skip_follow_ups=True``, ``_run_follow_up_phase``
     must NOT be invoked even if probes declare ``follow_up_ids``."""

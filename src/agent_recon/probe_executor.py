@@ -33,6 +33,7 @@ insert free-form text into this path.
 from __future__ import annotations
 
 import re
+import threading
 import time
 from typing import Any, Callable
 
@@ -118,6 +119,11 @@ class ProbeExecutor:
         )
         # Cache transports by kind so we don't rebuild httpx clients per probe.
         self._transports: dict[TransportKind, Transport] = {}
+        # Lock around the transport cache so two worker threads in the
+        # parallel safety net can't race to build duplicate transports
+        # for the same kind. The lock is held only during the cheap
+        # cache check + construct path — it never wraps a send_prompt().
+        self._transports_lock = threading.Lock()
         # Optional per-turn / per-run event hook. CLI wires this up only
         # when ``--verbose`` is set; non-verbose scans pay zero cost.
         self._on_event: EventCallback = on_event or _noop_event
@@ -162,16 +168,25 @@ class ProbeExecutor:
     # Internals
     # ------------------------------------------------------------------
     def _get_transport(self, kind: TransportKind) -> Transport:
+        # Fast path: lockless cache hit (dict ``get`` is atomic).
         cached = self._transports.get(kind)
         if cached is not None:
             return cached
-        transport = build_transport(
-            kind,
-            target_client=self._target_client,
-            target_client_config=self._target_client_config,
-        )
-        self._transports[kind] = transport
-        return transport
+        # Slow path: serialize transport construction so concurrent
+        # callers don't each spin up their own httpx.Client / SSE pool.
+        with self._transports_lock:
+            # Re-check under the lock in case a sibling thread built it
+            # while we were waiting.
+            cached = self._transports.get(kind)
+            if cached is not None:
+                return cached
+            transport = build_transport(
+                kind,
+                target_client=self._target_client,
+                target_client_config=self._target_client_config,
+            )
+            self._transports[kind] = transport
+            return transport
 
     def _execute_single_run(self, probe: Probe, transport: Transport) -> ProbeResult:
         """Run a probe once (one or many turns) and return its result."""

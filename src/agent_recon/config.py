@@ -54,6 +54,14 @@ class ScanConfig(BaseModel):
     # Set to ``0`` to disable agentic probing entirely; the safety
     # net then runs every probe.
     agentic_probe_budget: int = 5
+    # v2.0: how many worker threads to use for the deterministic safety
+    # net. The default of 1 preserves v1.x behaviour exactly (sequential
+    # probes with ``rate_limit_seconds`` between calls). Setting threads
+    # to N > 1 makes the safety net run probes concurrently — useful for
+    # large datasets where the wait time is dominated by per-probe HTTP
+    # latency. Probes are I/O-bound, so the GIL is not a bottleneck.
+    # Capped at 32 to keep the operator from accidentally DoSing a target.
+    threads: int = 1
 
 
 class TargetConfig(BaseModel):

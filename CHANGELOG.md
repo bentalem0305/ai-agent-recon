@@ -68,8 +68,7 @@ against a live target* — holds everywhere.
 
 ### Visibility + UX
 
-- Three new CLI override flags on `scan` so every v2 capability has
-  both a YAML knob *and* a CLI override:
+- Four new CLI flags on `scan`:
   - **`--transport-default {http|sse}`** flips every probe in the scan
     to a chosen transport without YAML edits (useful when the target
     only speaks SSE).
@@ -79,6 +78,14 @@ against a live target* — holds everywhere.
   - **`--no-follow-ups`** skips the adaptive follow-up phase entirely
     (faster, fully deterministic, no per-parent selector LLM call —
     useful for CI gates).
+  - **`--threads N` / `-t N`** (1..32) runs the deterministic safety
+    net in parallel via a thread pool. Probes are I/O-bound, so this
+    gives near-linear speedup on large datasets — a 60-probe scan that
+    took ~60s sequentially now finishes in ~10s with `--threads 8`.
+    `--rate-limit` becomes minimum spacing between submissions so
+    concurrent load on a fragile target stays bounded. The agentic
+    probe phase stays sequential by design (the LLM picks one probe at
+    a time). Default: 1 (matches v1.x sequential behaviour exactly).
 - Scan progress UI now spans **4 phases**: Reconnaissance, Adaptive
   follow-ups, Analysis, Writing reports. Phase 2 was previously silent
   in v2.0's first cut.

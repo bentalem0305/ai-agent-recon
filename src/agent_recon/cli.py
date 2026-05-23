@@ -189,6 +189,22 @@ def scan(
             "for CI gates that need reproducibility."
         ),
     ),
+    threads: Optional[int] = typer.Option(
+        None,
+        "--threads",
+        "-t",
+        help=(
+            "Number of worker threads for the deterministic safety net "
+            "(1..32). Probes are I/O-bound so threading gives near-linear "
+            "speedup on large datasets — a 60-probe scan that takes 60s "
+            "sequentially can finish in ~10s with --threads 8. The "
+            "agentic phase stays sequential by design (the LLM picks "
+            "probes one at a time). When set, the --rate-limit value "
+            "becomes minimum spacing between probe *submissions* (not "
+            "completions), so you can still throttle concurrent load. "
+            "Default: 1 (matches v1.x sequential behaviour)."
+        ),
+    ),
     agentic_probe_budget: Optional[int] = typer.Option(
         None,
         "--agentic-probe-budget",
@@ -227,6 +243,13 @@ def scan(
     Use --transport-default to flip the whole scan to SSE without editing
     every probe. See ``datasets/probes.v2_examples.yaml`` for examples.
     All v2 fields are optional and default to v1.x single-shot HTTP.
+
+    For large datasets, pass --threads N (e.g. --threads 8) to run the
+    deterministic safety net in parallel. Probes are I/O-bound, so the
+    speedup is near-linear: a 60-probe scan that takes 60s sequentially
+    can finish in ~10s with 8 threads. --rate-limit then acts as
+    minimum spacing between probe submissions so concurrent load on a
+    fragile target stays bounded.
     """
 
     configure_logging(verbose=verbose)
@@ -247,6 +270,15 @@ def scan(
         cfg.scan.rate_limit_seconds = float(rate_limit)
     if agentic_probe_budget is not None:
         cfg.scan.agentic_probe_budget = max(0, int(agentic_probe_budget))
+    if threads is not None:
+        if threads < 1 or threads > 32:
+            event(
+                "[err]",
+                f"Invalid --threads {threads!r}. Choose an integer between 1 and 32.",
+                style="err",
+            )
+            raise typer.Exit(code=2)
+        cfg.scan.threads = int(threads)
 
     # Parse headers
     try:

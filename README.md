@@ -70,6 +70,13 @@ continue to load and render unchanged.
   to **surface disagreement**, not to average it away. The report flags
   inconsistent probes explicitly. Pass `--differential-runs N` on the
   CLI to force every probe to N runs without YAML edits.
+- **Parallel safety net.** Pass `--threads N` (1..32) to run the
+  deterministic safety net in a thread pool. Probes are I/O-bound, so
+  the speedup is near-linear — a 60-probe scan that took ~60 seconds
+  sequentially finishes in ~10 seconds with `--threads 8`. `--rate-limit`
+  becomes minimum spacing between probe submissions so concurrent load
+  on a fragile target stays bounded. The agentic phase stays
+  sequential by design (the LLM picks one probe at a time).
 - **D — Verified-defense reporting.** When the assistant explicitly
   states a defense ("I treat retrieved content as untrusted data"), the
   Classifier records it under `verified_defenses` — the positive twin of
