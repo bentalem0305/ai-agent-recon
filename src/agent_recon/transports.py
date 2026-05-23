@@ -24,11 +24,14 @@ proxy / TLS-verify behavior.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import dataclass
 from typing import Any, Protocol, runtime_checkable
 
 import httpx
+
+_sse_log = logging.getLogger(__name__ + ".sse")
 
 from .models import Probe, ProbeResult, ProbeType, TransportKind
 from .target_client import (
@@ -160,6 +163,18 @@ class SseTransport:
     def send_prompt(self, prompt: str) -> TransportResponse:
         method = (self.config.method or "POST").upper()
         body = _render_body(self.config.body_template or {}, prompt)
+
+        # Operator hint: many SSE-speaking servers require an explicit
+        # ``stream: true`` flag in the request body to enable streaming.
+        # We don't fail (some servers stream regardless), but we log a
+        # debug warning so operators can diagnose silent fallbacks where
+        # the server returned a single buffered response instead of a stream.
+        if isinstance(body, dict) and not body.get("stream"):
+            _sse_log.debug(
+                "SSE transport sending body without a truthy 'stream' key — "
+                "many gateways require it to enable streaming. Body keys: %s",
+                sorted(body.keys()),
+            )
 
         client_kwargs: dict[str, Any] = {"timeout": self.config.timeout}
         if self.config.proxy:

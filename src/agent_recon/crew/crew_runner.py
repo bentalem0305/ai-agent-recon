@@ -115,11 +115,14 @@ class CrewRunner:
         app_config: AppConfig,
         target_client_config: TargetClientConfig,
         process_mode: ProcessMode = ProcessMode.sequential,
+        *,
+        verbose: bool = False,
     ) -> None:
         self.app_config = app_config
         self.target_client_config = target_client_config
         self.target_client = TargetClient(target_client_config)
         self.process_mode = process_mode
+        self.verbose = verbose
 
     # ------------------------------------------------------------------
     # Public API
@@ -164,10 +167,18 @@ class CrewRunner:
             return self._run_deterministic_only(probes, missing_env_var=llm_check.env_var)
 
         # Set up live structured progress for the whole scan.
-        # Phases: 1) Reconnaissance, 2) Analysis, 3) Writing reports.
-        self._progress = ScanProgress(total_phases=3)
+        # Phases (v2.0):
+        #   1 Reconnaissance (probe crew + safety net)
+        #   2 Adaptive follow-ups (LLM picks from YAML allow-list)
+        #   3 Analysis (Classifier → Validator → Reporter)
+        #   4 Writing reports
+        self._progress = ScanProgress(total_phases=4)
 
-        toolset = build_probe_toolset(self.target_client, probes)
+        # Build the executor up-front so the safety net and the agentic
+        # phase share one cached transport pool, and so the verbose
+        # per-turn / per-run event callback flows through them both.
+        executor = self._build_executor()
+        toolset = build_probe_toolset(self.target_client, probes, executor=executor)
         llm = build_llm(self.app_config.llm)
 
         # ----- PHASE 1: probing (agent + safety net) -----
@@ -182,10 +193,6 @@ class CrewRunner:
 
         self._run_probe_crew(llm=llm, toolset=toolset)
         self._run_safety_net(toolset.registry)
-        # v2.0 B: adaptive follow-ups (one round, IDs only from
-        # parent.follow_up_ids). The LLM has no way to author free text
-        # here — it can only pick from the YAML allow-list.
-        self._run_follow_up_phase(llm=llm, registry=toolset.registry)
 
         probe_results = toolset.registry.ordered_results()
         error_count = sum(1 for r in probe_results if r.error)
@@ -197,9 +204,28 @@ class CrewRunner:
         )
         self._progress.end_phase()
 
-        # ----- PHASE 2: agentic analysis (Classifier → Validator → Reporter) -----
+        # ----- PHASE 2: adaptive follow-ups (v2.0 B) -----
+        # One round, IDs only from parent.follow_up_ids. The LLM has no
+        # way to author free text — it can only pick from the allow-list.
+        # The phase is skipped (silently) if no probe declared follow-ups.
         self._progress.start_phase(
             2,
+            "Adaptive follow-ups",
+            detail="LLM picks one pre-approved follow-up per parent (or skips)",
+        )
+        chosen = self._run_follow_up_phase(llm=llm, registry=toolset.registry)
+        # Refresh ordered results — follow-ups added new entries to the registry.
+        probe_results = toolset.registry.ordered_results()
+        error_count = sum(1 for r in probe_results if r.error)
+        if chosen == 0:
+            event("[scan]", "No follow-ups chosen.", style="info")
+        else:
+            event("[scan]", f"{chosen} follow-up(s) chosen and run.", style="ok")
+        self._progress.end_phase()
+
+        # ----- PHASE 3: agentic analysis (Classifier → Validator → Reporter) -----
+        self._progress.start_phase(
+            3,
             "Analysis (Classifier → Validator → Reporter)",
         )
         classification, validation, summary, recommendations = self._run_analysis_crew(
@@ -225,17 +251,85 @@ class CrewRunner:
             recommendations=recommendations,
         )
 
-        # ----- PHASE 3: writing reports happens upstream in cli.py via
-        # write_reports(...). We open the phase here so the [ok] Wrote: ...
-        # lines printed by the report writer fall under the right banner.
-        self._progress.start_phase(3, "Writing reports")
+        # End-of-scan v2 activity summary so the operator sees what
+        # multi-turn / differential / follow-up work actually happened.
+        self._log_v2_activity_summary(probe_results)
+
+        # ----- PHASE 4: writing reports (driven by cli.py) -----
         # The report writer will emit individual [ok] Wrote: ... lines;
         # we end the phase + scan from cli.py via mark_scan_complete().
+        self._progress.start_phase(4, "Writing reports")
         return report
+
+    # ------------------------------------------------------------------
+    # Executor construction (v2.0)
+    # ------------------------------------------------------------------
+    def _build_executor(self) -> "ProbeExecutor":
+        """Construct the per-scan :class:`ProbeExecutor`.
+
+        Plumbs a verbose per-turn / per-run event callback in when the
+        runner was constructed with ``verbose=True``. Non-verbose scans
+        get a no-op callback so they pay zero cost.
+        """
+        from ..probe_executor import ProbeExecutor
+
+        on_event = None
+        if self.verbose:
+            def on_event(probe_id: str, detail: str) -> None:  # noqa: E306
+                event("[probe]", f"{probe_id}: {detail}", style="probe")
+
+        return ProbeExecutor(
+            self.target_client,
+            self.target_client_config,
+            on_event=on_event,
+        )
+
+    # ------------------------------------------------------------------
+    # End-of-scan v2 activity summary
+    # ------------------------------------------------------------------
+    def _log_v2_activity_summary(self, probe_results: list[ProbeResult]) -> None:
+        """One-line operator summary of v2 activity during the scan.
+
+        Counts multi-turn probes, differential probes, follow-ups
+        chosen, and approximate total HTTP requests issued. Suppressed
+        entirely when nothing v2 happened so v1-only scans look
+        identical to v1.x.
+        """
+        multi_turn_count = sum(1 for r in probe_results if r.turn_responses)
+        differential_count = sum(1 for r in probe_results if r.differential)
+        follow_up_count = sum(1 for r in probe_results if r.follow_up_probe_id)
+
+        # Request math:
+        #   * a v1 probe is 1 request,
+        #   * a multi-turn probe is len(turn_responses) requests,
+        #   * a differential probe runs the full single-run sequence
+        #     ``differential_runs`` times; we approximate via the count of
+        #     captured runs * per-run turn count (1 if no multi-turn).
+        total_requests = 0
+        for r in probe_results:
+            per_run_turns = len(r.turn_responses) or 1
+            if r.differential and r.differential.runs:
+                total_requests += per_run_turns * len(r.differential.runs)
+            else:
+                total_requests += per_run_turns
+
+        if not (multi_turn_count or differential_count or follow_up_count):
+            return
+
+        event(
+            "[scan]",
+            (
+                f"v2 activity: {multi_turn_count} multi-turn, "
+                f"{differential_count} differential, "
+                f"{follow_up_count} follow-up(s) chosen, "
+                f"~{total_requests} total HTTP requests."
+            ),
+            style="ok",
+        )
 
     def mark_scan_complete(self) -> None:
         """Called by the CLI after report files are written, to close
-        Phase 3 and print the final scan-complete banner."""
+        the final phase (Writing reports) and print the scan-complete banner."""
         if hasattr(self, "_progress"):
             self._progress.end_phase()
             self._progress.scan_complete()
@@ -517,10 +611,12 @@ class CrewRunner:
             # Surface errors only - successes are tracked by the bar.
             if result.error:
                 error_count_so_far += 1
+                where = _describe_v2_error_location(result)
+                where_suffix = f" ({where})" if where else ""
                 event(
                     "[safety-net]",
                     f"({i}/{len(pending)}) {probe.id} [{probe.category}] "
-                    f"-> ERROR: {result.error}",
+                    f"-> ERROR: {result.error}{where_suffix}",
                     style="err",
                 )
 
@@ -553,13 +649,16 @@ class CrewRunner:
     # ------------------------------------------------------------------
     # Phase 2.5: adaptive follow-ups (v2.0 B)
     # ------------------------------------------------------------------
-    def _run_follow_up_phase(self, *, llm: Any, registry: ProbeRegistry) -> None:
+    def _run_follow_up_phase(self, *, llm: Any, registry: ProbeRegistry) -> int:
         """Run one round of adaptive follow-up probes.
 
         For every probe with a populated ``follow_up_ids``, ask the LLM
         to pick ONE follow-up ID from the allow-list (or skip). If a
         valid ID is chosen, execute that probe through the registry.
         Recorded on the parent result's ``follow_up_probe_id`` field.
+
+        Returns the count of follow-ups actually chosen and executed,
+        so the caller can include it in the phase summary line.
 
         Safety floors:
           * No follow-up of a follow-up (depth cap = 1).
@@ -577,14 +676,14 @@ class CrewRunner:
             and pid in registry.results
         ]
         if not parents_with_followups:
-            return
+            return 0
 
-        progress = getattr(self, "_progress", None)
-        if progress is not None:
-            progress.agent_start(
-                "Follow-up selector",
-                f"{len(parents_with_followups)} probe(s) declare follow-ups",
-            )
+        event(
+            "[follow-up]",
+            f"{len(parents_with_followups)} probe(s) declare follow-ups; "
+            "asking the selector LLM…",
+            style="scan",
+        )
 
         # Wrap CrewAI's llm object behind a simple text-in/text-out shim
         # so :mod:`follow_ups` doesn't import CrewAI directly.
@@ -635,14 +734,10 @@ class CrewRunner:
             event(
                 "[follow-up]",
                 f"{parent.id} → {plan.chosen_id}",
-                style="probe",
+                style="ok",
             )
 
-        if progress is not None:
-            progress.agent_done(
-                "Follow-up selector",
-                f"{chosen_count} follow-up(s) chosen and run",
-            )
+        return chosen_count
 
     # ------------------------------------------------------------------
     # Phase 3: agentic analysis crew
@@ -933,6 +1028,30 @@ def _make_step_callback(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _describe_v2_error_location(result: ProbeResult) -> str:
+    """Return a short string like 'failed on turn 2/3' or 'failed on run 2/4'
+    when a v2 probe (multi-turn or differential) errored partway through,
+    or an empty string for plain v1 probes."""
+    # Differential: find the first errored run.
+    if result.differential is not None and result.differential.runs:
+        for run in result.differential.runs:
+            if run.error:
+                return (
+                    f"failed on run {run.run_index}/{len(result.differential.runs)}"
+                )
+    # Multi-turn: find the last captured (= errored) turn.
+    if result.turn_responses:
+        # Multi-turn _execute_single_run stops on first error, so the
+        # last turn in the list is the one that failed when error is set.
+        last = result.turn_responses[-1]
+        if last.error:
+            return (
+                f"failed on turn {last.turn_index + 1}/"
+                f"{len(result.turn_responses) + 0}"  # captured count
+            )
+    return ""
+
 
 def _build_classifier_payload_entry(r: ProbeResult) -> dict[str, Any]:
     """Build one probe-result entry for the classifier payload.

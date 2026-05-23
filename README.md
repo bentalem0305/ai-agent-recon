@@ -10,7 +10,7 @@
 [![Tests](https://img.shields.io/badge/tests-54%20passing-2EA043.svg)](#-tests)
 [![License](https://img.shields.io/badge/license-Authorized%20Research%20Only-F59E0B.svg)](#license)
 
-**Two CrewAI crews · Eight LLM-driven agents · Deterministic safety floors · OWASP Top 10 for Agentic AI**
+**HTTP + SSE · multi-turn · differential · adaptive follow-ups · OWASP-mapper eval harness · Deterministic safety floors**
 
 </div>
 
@@ -41,7 +41,45 @@ The whole pipeline is built around the [CrewAI](https://github.com/joaomdmoura/c
 | 🧭 **Explainable OWASP scoring** | `impact + exploitability + exposure + privilege + autonomy − approval_control` per ASI01..ASI10 |
 | 🧪 **Bundled practice targets** | 6 sample recon JSONs + a real LangGraph customer-support agent (`SupportMate`) bundled in-repo |
 | 🎯 **LLM-default with rule-based fallback** | `--no-llm` runs the deterministic pipeline only — no API key required |
-| ✅ **54 passing tests** | Both phases, safety floors, partial-input handling, registry safety, fallback paths |
+| ✅ **127+ passing tests** | Both phases, safety floors, partial-input handling, registry safety, fallback paths, v2 transports/executor/follow-ups/eval-mapper |
+
+---
+
+## ✨ v2.0 Highlights
+
+v2.0 adds five capabilities on top of the v1.3 pipeline. **Every v2 schema
+addition is optional** — existing v1.x probes, recon JSONs, and reports
+continue to load and render unchanged.
+
+- **A — SSE transport + multi-turn probes.** A probe can declare
+  `transport: sse` to talk to streaming endpoints (OpenAI-style `data:`
+  deltas, `[DONE]` sentinel) and `turns: [...]` to script a multi-turn
+  conversation against the target. Every turn's text is pre-written in
+  YAML — the LLM never authors free-form text against a live target.
+- **B — Adaptive follow-up probes.** A probe can declare
+  `follow_up_ids: [...]` — a hand-curated allow-list of probe IDs.
+  After the parent probe runs, a selector LLM picks **one** ID from the
+  list (or skips). Out-of-allowlist output, malformed JSON, or prose is
+  rejected as "skip"; depth cap = 1 (no chains).
+- **C — Differential scanning.** `differential_runs: N` (1..10) runs the
+  same probe N times and captures the per-run breakdown plus a variance
+  summary (`unique_responses`, `response_length_spread`). The point is
+  to **surface disagreement**, not to average it away. The report flags
+  inconsistent probes explicitly.
+- **D — Verified-defense reporting.** When the assistant explicitly
+  states a defense ("I treat retrieved content as untrusted data"), the
+  Classifier records it under `verified_defenses` — the positive twin of
+  `risk_flags`. The HTML / Markdown reports render a dedicated
+  "Defenses Demonstrated" section so well-defended agents don't get
+  misleadingly empty reports.
+- **E — `eval-mapper` harness.** `ai-agent-recon eval-mapper` grades the
+  OWASP mapper against hand-labeled ground-truth fixtures. Emits CSV +
+  Markdown + JSON. Use `--fail-under` as a CI gate. Developer tooling,
+  not part of the user-facing scan flow — see
+  [`evals/README.md`](evals/README.md).
+
+Working YAML examples for every feature live in
+[`datasets/probes.v2_examples.yaml`](datasets/probes.v2_examples.yaml).
 
 ---
 
@@ -704,9 +742,9 @@ PYTHONPATH=src pytest -q
 | **v1.0** | ✅ Shipped | Sequential CrewAI flow, evidence-based classification, JSON/Markdown reports. |
 | **v1.1** | ✅ Shipped | Per-category sub-reports, HTML report. |
 | **v1.2** | ✅ Shipped | Fully agentic probing + optional hierarchical analysis crew, ID-locked tool, deterministic safety net, classifier polarity / role / concrete-gap rules. |
-| **v1.3** | ✅ **Current** | **Phases 2-4 PT-planning pipeline** (OWASP Mapper + Test-Scenario Author + Plan Lead CrewAI agents, deterministic safety floors, self-contained HTML dashboard, six sample recon files, full progress logging). |
-| **v1.4** | 🔄 Next | Pluggable transport (WebSocket / SSE streaming targets, MCP-style targets). |
-| **v2.0** | 📋 Planned | Adaptive follow-up probes (Validator-suggested questions executed in a second probing pass). |
+| **v1.3** | ✅ Shipped | **Phases 2-4 PT-planning pipeline** (OWASP Mapper + Test-Scenario Author + Plan Lead CrewAI agents, deterministic safety floors, self-contained HTML dashboard, six sample recon files, full progress logging). |
+| **v2.0** | ✅ **Current** | **Streaming + multi-turn + adaptive + measurable.** A: SSE transport + multi-turn probes; B: adaptive follow-up probes (LLM picks from a YAML allow-list — never authors prompt text); C: differential scanning (variance characterization, N repeated runs); D: verified-defense reporting (positive twin of `risk_flags`); E: `eval-mapper` harness with hand-labeled ground-truth fixtures + CSV/MD/JSON output. See [`datasets/probes.v2_examples.yaml`](datasets/probes.v2_examples.yaml), [`evals/README.md`](evals/README.md), and [`CHANGELOG.md`](CHANGELOG.md). |
+| **v2.1** | 📋 Planned | WebSocket transport. MCP-style targets. Additional ground-truth fixtures + mapper rule tuning to close the priority-inflation gap surfaced by the v2.0 eval harness. |
 
 ---
 

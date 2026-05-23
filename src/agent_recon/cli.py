@@ -1,6 +1,7 @@
 """Typer-based CLI for AI Agent Recon."""
 from __future__ import annotations
 
+import typing
 from pathlib import Path
 from typing import Optional
 
@@ -157,10 +158,29 @@ def scan(
     verbose: bool = typer.Option(
         False,
         "--verbose",
-        help="Enable verbose logging.",
+        help=(
+            "Enable verbose logging — also surfaces per-turn and per-run "
+            "detail for v2 multi-turn / differential probes "
+            "(e.g. 'MT-001: turn 2/3', 'DIFF-001: run 3/4')."
+        ),
     ),
 ) -> None:
-    """Run a recon scan against the given target AI agent."""
+    """Run a recon scan against the given target AI agent.
+
+    The scan runs four phases under the hood:
+      1. Reconnaissance        — agentic probe crew + deterministic safety net.
+      2. Adaptive follow-ups   — LLM picks one pre-approved follow-up ID per
+                                 parent probe that declared ``follow_up_ids``.
+      3. Analysis              — Classifier → Validator → Reporter.
+      4. Writing reports       — JSON, Markdown, HTML.
+
+    Probes are loaded from YAML (--probe-file). v2.0 probes may declare
+    optional fields ``transport: sse`` (streaming target), ``turns: [...]``
+    (multi-turn conversation), ``differential_runs: N`` (run N times for
+    variance), or ``follow_up_ids: [...]`` (adaptive follow-up allow-list).
+    See ``datasets/probes.v2_examples.yaml`` for working examples. All v2
+    fields are optional and default to v1.x single-shot HTTP behavior.
+    """
 
     configure_logging(verbose=verbose)
     # The ASCII startup banner is printed once by the root @app.callback();
@@ -250,10 +270,11 @@ def scan(
         app_config=cfg,
         target_client_config=target_config,
         process_mode=process_mode,
+        verbose=verbose,
     )
     report = runner.run(probes)
 
-    # Write outputs (Phase 3 banner is already open from runner.run()).
+    # Write outputs — Phase 4 banner is already open from runner.run().
     fmt = (output_format or "all").strip()
     paths = write_reports(report, output_dir, formats=(fmt,))
     if not paths:
@@ -504,18 +525,23 @@ def eval_mapper(
 ) -> None:
     """Evaluate the OWASP mapper against the ground-truth fixture set.
 
-    Internal developer tooling: measures whether changes to the mapper
-    (rules or the LLM-driven Mapper agent prompt) move the numbers up
-    or down. Emits three artifacts:
+    v2.0 feature E — internal developer tooling, NOT part of `scan` or
+    `pt-plan`. Measures whether changes to the mapper (rules or the
+    LLM-driven Mapper agent prompt) move quality up or down against
+    hand-labeled ground-truth recon files. Emits three artifacts into
+    `--output`:
 
       * eval_results.json — full per-fixture + aggregate metrics
       * eval_results.csv  — one row per (fixture, ASI) cell, diffable
       * eval_results.md   — operator-readable summary
 
     Pass --llm to evaluate the CrewAI Mapper agent end-to-end (slow,
-    needs credentials). Default is the deterministic rule-based mapper.
+    needs credentials; falls back to rule-based per-fixture on failure
+    with a clear warning so the operator knows). Default is the
+    deterministic rule-based mapper. Use --fail-under as a CI gate.
     """
     from .evals import EvalMode, run_evaluation, write_results
+    from .utils.progress import ScanProgress
 
     if not fixtures_dir.exists():
         event("[err]", f"Fixtures directory not found: {fixtures_dir}", style="err")
@@ -524,8 +550,32 @@ def eval_mapper(
     mode = EvalMode.llm if use_llm else EvalMode.rule_based
     event("[eval]", f"Evaluating mapper in {mode.value} mode against {fixtures_dir} ...", style="scan")
 
+    # Wrap the fixture loop in a Rich progress bar so the operator sees
+    # which fixture is currently being evaluated (useful for --llm mode
+    # where a single fixture can take several seconds).
+    progress = ScanProgress(total_phases=1)
+    advance_cb: list[typing.Any] = [None]  # filled when we enter the bar context
+
+    def _on_fixture_start(i: int, total: int, fixture: typing.Any) -> None:
+        event("[eval]", f"({i}/{total}) {fixture.name}", style="info")
+        if advance_cb[0] is not None:
+            advance_cb[0]()
+
     try:
-        metrics = run_evaluation(fixtures_dir, mode=mode)
+        from .evals.fixtures import load_fixtures as _peek_fixtures
+        peek = _peek_fixtures(fixtures_dir)
+    except Exception as e:
+        event("[err]", f"Eval failed loading fixtures: {e}", style="err")
+        raise typer.Exit(code=2)
+
+    try:
+        with progress.probe_progress(total=len(peek), description="eval-mapper") as adv:
+            advance_cb[0] = adv
+            metrics = run_evaluation(
+                fixtures_dir,
+                mode=mode,
+                on_fixture_start=_on_fixture_start,
+            )
     except Exception as e:
         event("[err]", f"Eval failed: {e}", style="err")
         raise typer.Exit(code=2)

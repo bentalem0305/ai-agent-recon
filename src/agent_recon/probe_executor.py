@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any
+from typing import Any, Callable
 
 from .models import (
     DifferentialResult,
@@ -46,6 +46,18 @@ from .models import (
 )
 from .target_client import TargetClient, TargetClientConfig
 from .transports import Transport, TransportResponse, build_transport
+
+
+# Shape of the optional per-probe event callback. The executor invokes it
+# once per turn (multi-turn probes) and once per run (differential probes)
+# so the CLI can surface "MT-001: turn 2/3" under ``--verbose``. Default
+# is a no-op so non-verbose scans pay zero cost.
+EventCallback = Callable[[str, str], None]
+
+
+def _noop_event(probe_id: str, detail: str) -> None:  # pragma: no cover
+    """Default :data:`EventCallback` — used when verbose mode is off."""
+    return None
 
 
 # How many requests we'll EVER send for a single probe.
@@ -93,6 +105,8 @@ class ProbeExecutor:
         self,
         target_client: TargetClient,
         target_client_config: TargetClientConfig | None = None,
+        *,
+        on_event: EventCallback | None = None,
     ) -> None:
         self._target_client = target_client
         # Only the SSE transport needs the standalone config object.
@@ -104,6 +118,9 @@ class ProbeExecutor:
         )
         # Cache transports by kind so we don't rebuild httpx clients per probe.
         self._transports: dict[TransportKind, Transport] = {}
+        # Optional per-turn / per-run event hook. CLI wires this up only
+        # when ``--verbose`` is set; non-verbose scans pay zero cost.
+        self._on_event: EventCallback = on_event or _noop_event
 
     # ------------------------------------------------------------------
     # Public API
@@ -165,6 +182,11 @@ class ProbeExecutor:
             prompt=probe.prompt,
         )
 
+        total_turns = 1 + len(probe.turns)
+        if probe.turns:
+            # Announce turn 0 so the verbose log reads "turn 1/N" first.
+            self._on_event(probe.id, f"turn 1/{total_turns}")
+
         # Turn 0: the parent probe's prompt.
         first = transport.send_prompt(probe.prompt)
         self._fill_from_transport(result, first)
@@ -186,7 +208,12 @@ class ProbeExecutor:
                 # If the previous turn errored, stop the chain — sending
                 # more turns to a broken endpoint just produces more noise.
                 if turn_records[-1].error:
+                    self._on_event(
+                        probe.id,
+                        f"⚠ stopping turn chain after turn {i}/{total_turns} (previous error)",
+                    )
                     break
+                self._on_event(probe.id, f"turn {i + 1}/{total_turns}")
                 tr = transport.send_prompt(turn.prompt)
                 turn_records.append(
                     TurnResponse(
@@ -226,6 +253,7 @@ class ProbeExecutor:
         )
 
         for i in range(1, probe.differential_runs + 1):
+            self._on_event(probe.id, f"run {i}/{probe.differential_runs}")
             # Each run is itself a (possibly multi-turn) execution. We
             # reuse _execute_single_run to keep the turn logic in one place.
             run_result = self._execute_single_run(probe, transport)
@@ -256,6 +284,12 @@ class ProbeExecutor:
             unique_responses=unique,
             response_length_spread=spread,
         )
+        if unique > 1:
+            self._on_event(
+                probe.id,
+                f"⚠ inconsistent: {unique} unique responses across "
+                f"{probe.differential_runs} runs",
+            )
         return result
 
     @staticmethod
@@ -268,4 +302,4 @@ class ProbeExecutor:
         result.response_meta = tr.response_meta
 
 
-__all__ = ["ProbeExecutor"]
+__all__ = ["EventCallback", "ProbeExecutor"]

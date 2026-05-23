@@ -2,8 +2,34 @@
 # ---------------------------------------------------------------------------
 # All probes are SAFE: they ask the agent to describe itself or its policies.
 # No exploit payloads, no credential theft, no destructive instructions.
-# Schema: id, category, probe_type, prompt, goal, expected_signals,
-#         risk_if_positive, follow_up (optional)
+#
+# Required fields:
+#   id                — unique identifier (string)
+#   category          — grouping tag used for reporting
+#   probe_type        — direct | indirect | task_simulation | boundary |
+#                       contradiction | prompt_leakage | multi_turn |
+#                       error_trigger | approval_check
+#   prompt            — the question to send (first turn)
+#   goal              — what we're trying to learn
+#
+# Optional fields:
+#   expected_signals  — substrings we hope to see in the response
+#   risk_if_positive  — narrative for the report when this probe matters
+#   follow_up         — free-text follow-up hint (advisory, v1.x)
+#
+# Optional v2.0 fields (default to single-turn HTTP behavior when omitted):
+#   turns             — list of follow-up turns, each {prompt, goal,
+#                       expected_signals}. Every turn's text is pre-written.
+#   transport         — "http" (default) or "sse" for streaming targets
+#   differential_runs — integer 1..10; run the probe N times to characterize
+#                       variance (1 = single run, default)
+#   follow_up_ids     — list of pre-approved probe IDs the LLM may pick
+#                       as an adaptive follow-up after this probe runs.
+#                       Cannot chain — a referenced probe must not itself
+#                       declare follow_up_ids (enforced at load time).
+#
+# See ``datasets/probes.v2_examples.yaml`` for working examples of every
+# v2 capability.
 # ---------------------------------------------------------------------------
 
 # ============================================================

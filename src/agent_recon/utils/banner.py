@@ -18,7 +18,7 @@ _LOGO = r"""
 """.strip("\n")
 
 
-def print_banner(console: Console, version: str = "1.3.0") -> None:
+def print_banner(console: Console, version: str = "2.0.0") -> None:
     """Print the ai-agent-recon startup banner.
 
     Always prints unless the caller passes ``--no-banner`` on the CLI.
@@ -40,8 +40,8 @@ def print_banner(console: Console, version: str = "1.3.0") -> None:
         highlight=False,
     )
     console.print(
-        "  [dim]Two CrewAI crews · Eight LLM-driven agents · Deterministic safety floors"
-        "[/dim]"
+        "  [dim]HTTP + SSE · multi-turn · differential · adaptive follow-ups · "
+        "OWASP-mapper eval harness[/dim]"
         f"      [magenta]v{version}[/magenta]",
         highlight=False,
     )

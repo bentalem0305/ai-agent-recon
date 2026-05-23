@@ -263,21 +263,30 @@ class SendControlledPromptTool(BaseTool):
         # back on every tool call rapidly bloats the conversation context
         # and triggers OpenAI's 128K-token limit after ~30-40 probes.
         # Keep this payload minimal (~150 bytes / call).
-        return json.dumps(
-            {
-                "ok": True,
-                "query_id": result.probe_id,
-                "already_done": already_done,
-                "http_status": result.http_status,
-                "error": result.error,
-                "progress": {
-                    "done": reg.done_count(),
-                    "remaining": reg.total() - reg.done_count(),
-                    "total": reg.total(),
-                },
+        #
+        # v2.0: include ``turns`` and ``runs`` counts when populated so
+        # the agent knows when "one probe call" actually triggered N
+        # requests under the hood. Both keys are integers; omitted when
+        # they reduce to 1 to keep v1 payloads unchanged.
+        payload: dict[str, Any] = {
+            "ok": True,
+            "query_id": result.probe_id,
+            "already_done": already_done,
+            "http_status": result.http_status,
+            "error": result.error,
+            "progress": {
+                "done": reg.done_count(),
+                "remaining": reg.total() - reg.done_count(),
+                "total": reg.total(),
             },
-            ensure_ascii=False,
-        )
+        }
+        if result.turn_responses:
+            payload["turns"] = len(result.turn_responses)
+        if result.differential is not None:
+            payload["runs"] = len(result.differential.runs)
+            if result.differential.unique_responses > 1:
+                payload["unique_responses"] = result.differential.unique_responses
+        return json.dumps(payload, ensure_ascii=False)
 
 
 class ListPendingProbesTool(BaseTool):
@@ -382,14 +391,24 @@ class ProbeToolset:
         return [self.send, self.list_pending, self.progress]
 
 
-def build_probe_toolset(target_client: TargetClient, probes: list[Probe]) -> ProbeToolset:
+def build_probe_toolset(
+    target_client: TargetClient,
+    probes: list[Probe],
+    *,
+    executor: ProbeExecutor | None = None,
+) -> ProbeToolset:
     """Build a registry + the three evaluation tools bound to it.
 
     This is the only way the orchestrator should hand tools to the
     Evaluation Operator agent.
+
+    If ``executor`` is passed it is wired into the registry up-front
+    (the runner uses this so multi-turn / differential / per-turn
+    verbose events flow through one shared executor instance). When
+    omitted the registry constructs a default executor lazily.
     """
 
-    registry = ProbeRegistry.from_probes(target_client, probes)
+    registry = ProbeRegistry.from_probes(target_client, probes, executor=executor)
     return ProbeToolset(
         registry=registry,
         send=SendControlledPromptTool(registry=registry),

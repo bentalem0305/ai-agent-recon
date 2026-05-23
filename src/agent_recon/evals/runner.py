@@ -24,6 +24,7 @@ eval run; you still get numbers for the fixtures that did succeed.
 """
 from __future__ import annotations
 
+import logging
 from enum import Enum
 from pathlib import Path
 from typing import Callable
@@ -39,6 +40,14 @@ from .metrics import (
     aggregate,
     compare_fixture,
 )
+
+log = logging.getLogger(__name__)
+
+
+# Callback shape used by the CLI to drive a progress bar over the
+# fixture loop. The runner is otherwise agent-free, so the callback is
+# the only place a UI can hook in. ``index`` is 1-based.
+OnFixtureStart = Callable[[int, int, EvalFixture], None]
 
 
 class EvalMode(str, Enum):
@@ -72,13 +81,20 @@ def _llm_mapper(recon: NormalizedRecon) -> list[OwaspMappingItem]:
     must work in environments where CrewAI isn't installed or is
     intentionally not configured.
 
-    Any failure falls back to the rule-based mapper. The runner that
-    calls this records the fallback as part of the per-fixture result.
+    Any failure falls back to the rule-based mapper AND logs a clear
+    warning so operators don't silently get a different mapper than
+    they asked for. The runner that calls this records the fallback as
+    part of the per-fixture result.
     """
     try:
         from ..config import load_config
         from ..pt.crew.crew_runner import run_pt_crew  # type: ignore[import-not-found]
-    except Exception:
+    except Exception as e:
+        log.warning(
+            "eval-mapper --llm: CrewAI mapper crew unavailable (%s); "
+            "falling back to rule-based mapper for this fixture.",
+            type(e).__name__,
+        )
         return _rule_based_mapper(recon)
 
     try:
@@ -87,8 +103,13 @@ def _llm_mapper(recon: NormalizedRecon) -> list[OwaspMappingItem]:
         mapping = crew_result.mapping
         if mapping:
             return _normalize_mapping(mapping)
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning(
+            "eval-mapper --llm: crew kickoff failed (%s: %s); "
+            "falling back to rule-based mapper for this fixture.",
+            type(e).__name__,
+            e,
+        )
 
     return _rule_based_mapper(recon)
 
@@ -159,6 +180,7 @@ def run_evaluation(
     *,
     mode: EvalMode = EvalMode.rule_based,
     mapper: MapperFn | None = None,
+    on_fixture_start: OnFixtureStart | None = None,
 ) -> RunMetrics:
     """Run the mapper against every fixture in a directory.
 
@@ -168,12 +190,24 @@ def run_evaluation(
     callable matching :data:`MapperFn` and it'll be used instead of the
     mode-derived backend. The mode is still recorded on the
     :class:`RunMetrics` for reporting clarity.
+
+    ``on_fixture_start`` is an optional UI hook the CLI uses to drive a
+    progress bar over the fixture loop. Called as
+    ``on_fixture_start(index_1_based, total, fixture)`` before each
+    fixture executes. Defaults to a no-op so library callers and tests
+    don't need to provide one.
     """
     fixtures = load_fixtures(fixtures_dir)
     fn = mapper or _select_mapper(mode)
 
     per_fixture: list[FixtureResult] = []
-    for fx in fixtures:
+    total = len(fixtures)
+    for i, fx in enumerate(fixtures, start=1):
+        if on_fixture_start is not None:
+            try:
+                on_fixture_start(i, total, fx)
+            except Exception:  # pragma: no cover - UI hook must never break a run
+                log.debug("on_fixture_start callback raised; ignoring", exc_info=True)
         per_fixture.append(run_one_fixture(fx, mode=mode, mapper=fn))
 
     return RunMetrics(
@@ -186,6 +220,7 @@ def run_evaluation(
 __all__ = [
     "EvalMode",
     "MapperFn",
+    "OnFixtureStart",
     "run_evaluation",
     "run_one_fixture",
 ]
