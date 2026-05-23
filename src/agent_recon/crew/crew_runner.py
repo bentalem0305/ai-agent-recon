@@ -117,12 +117,17 @@ class CrewRunner:
         process_mode: ProcessMode = ProcessMode.sequential,
         *,
         verbose: bool = False,
+        skip_follow_ups: bool = False,
     ) -> None:
         self.app_config = app_config
         self.target_client_config = target_client_config
         self.target_client = TargetClient(target_client_config)
         self.process_mode = process_mode
         self.verbose = verbose
+        # v2.0 B: when True, Phase 2 (adaptive follow-ups) is skipped
+        # entirely — the banner still opens for a moment so the four-phase
+        # progress stays consistent, but no selector LLM call is made.
+        self.skip_follow_ups = skip_follow_ups
 
     # ------------------------------------------------------------------
     # Public API
@@ -207,20 +212,32 @@ class CrewRunner:
         # ----- PHASE 2: adaptive follow-ups (v2.0 B) -----
         # One round, IDs only from parent.follow_up_ids. The LLM has no
         # way to author free text — it can only pick from the allow-list.
-        # The phase is skipped (silently) if no probe declared follow-ups.
+        # The phase is skipped (silently) if no probe declared follow-ups,
+        # or wholesale when the operator passed ``--no-follow-ups``.
         self._progress.start_phase(
             2,
             "Adaptive follow-ups",
-            detail="LLM picks one pre-approved follow-up per parent (or skips)",
+            detail=(
+                "skipped (--no-follow-ups)"
+                if self.skip_follow_ups
+                else "LLM picks one pre-approved follow-up per parent (or skips)"
+            ),
         )
-        chosen = self._run_follow_up_phase(llm=llm, registry=toolset.registry)
-        # Refresh ordered results — follow-ups added new entries to the registry.
-        probe_results = toolset.registry.ordered_results()
-        error_count = sum(1 for r in probe_results if r.error)
-        if chosen == 0:
-            event("[scan]", "No follow-ups chosen.", style="info")
+        if self.skip_follow_ups:
+            event(
+                "[scan]",
+                "--no-follow-ups: skipping the adaptive follow-up phase.",
+                style="info",
+            )
         else:
-            event("[scan]", f"{chosen} follow-up(s) chosen and run.", style="ok")
+            chosen = self._run_follow_up_phase(llm=llm, registry=toolset.registry)
+            # Refresh ordered results — follow-ups added new entries to the registry.
+            probe_results = toolset.registry.ordered_results()
+            error_count = sum(1 for r in probe_results if r.error)
+            if chosen == 0:
+                event("[scan]", "No follow-ups chosen.", style="info")
+            else:
+                event("[scan]", f"{chosen} follow-up(s) chosen and run.", style="ok")
         self._progress.end_phase()
 
         # ----- PHASE 3: agentic analysis (Classifier → Validator → Reporter) -----

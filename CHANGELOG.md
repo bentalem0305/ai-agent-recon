@@ -57,9 +57,17 @@ against a live target* — holds everywhere.
 
 ### Visibility + UX
 
-- New CLI flag **`--transport-default {http|sse}`** flips every probe in
-  the scan to a chosen transport without having to edit each YAML
-  entry. Useful when the target only speaks SSE.
+- Three new CLI override flags on `scan` so every v2 capability has
+  both a YAML knob *and* a CLI override:
+  - **`--transport-default {http|sse}`** flips every probe in the scan
+    to a chosen transport without YAML edits (useful when the target
+    only speaks SSE).
+  - **`--differential-runs N`** (1..10) runs every probe N times for
+    variance characterization without editing the YAML (useful for ad-
+    hoc consistency checks on an existing dataset).
+  - **`--no-follow-ups`** skips the adaptive follow-up phase entirely
+    (faster, fully deterministic, no per-parent selector LLM call —
+    useful for CI gates).
 - Scan progress UI now spans **4 phases**: Reconnaissance, Adaptive
   follow-ups, Analysis, Writing reports. Phase 2 was previously silent
   in v2.0's first cut.

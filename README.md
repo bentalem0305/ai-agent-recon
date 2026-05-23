@@ -62,12 +62,14 @@ continue to load and render unchanged.
   `follow_up_ids: [...]` — a hand-curated allow-list of probe IDs.
   After the parent probe runs, a selector LLM picks **one** ID from the
   list (or skips). Out-of-allowlist output, malformed JSON, or prose is
-  rejected as "skip"; depth cap = 1 (no chains).
+  rejected as "skip"; depth cap = 1 (no chains). Pass `--no-follow-ups`
+  to skip Phase 2 entirely (faster, fully deterministic — useful for CI).
 - **C — Differential scanning.** `differential_runs: N` (1..10) runs the
   same probe N times and captures the per-run breakdown plus a variance
   summary (`unique_responses`, `response_length_spread`). The point is
   to **surface disagreement**, not to average it away. The report flags
-  inconsistent probes explicitly.
+  inconsistent probes explicitly. Pass `--differential-runs N` on the
+  CLI to force every probe to N runs without YAML edits.
 - **D — Verified-defense reporting.** When the assistant explicitly
   states a defense ("I treat retrieved content as untrusted data"), the
   Classifier records it under `verified_defenses` — the positive twin of

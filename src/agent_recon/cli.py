@@ -166,6 +166,29 @@ def scan(
             "probe to use SSE for this scan."
         ),
     ),
+    differential_runs: Optional[int] = typer.Option(
+        None,
+        "--differential-runs",
+        help=(
+            "v2.0 C override: run every probe N times to characterize "
+            "response variance (1..10). When set, replaces each probe's "
+            "YAML 'differential_runs:' value for this scan. Useful for "
+            "measuring consistency without editing the YAML dataset. "
+            "Default: leave per-probe YAML values intact (most v1 probes "
+            "= 1 run)."
+        ),
+    ),
+    no_follow_ups: bool = typer.Option(
+        False,
+        "--no-follow-ups",
+        help=(
+            "v2.0 B override: skip the adaptive follow-up phase entirely. "
+            "Faster scans (no per-parent selector LLM call) and fully "
+            "deterministic probing. Probes' YAML 'follow_up_ids:' lists "
+            "are still loaded and validated but never consulted. Useful "
+            "for CI gates that need reproducibility."
+        ),
+    ),
     agentic_probe_budget: Optional[int] = typer.Option(
         None,
         "--agentic-probe-budget",
@@ -284,6 +307,33 @@ def scan(
             style="scan",
         )
 
+    # v2.0 C: --differential-runs override.
+    # When set, every probe runs N times for this scan regardless of
+    # its YAML ``differential_runs:`` value. Bounded to 1..10 (matches
+    # the Probe schema cap so we never get a load-time validation error
+    # halfway through the override).
+    if differential_runs is not None:
+        if differential_runs < 1 or differential_runs > 10:
+            event(
+                "[err]",
+                f"Invalid --differential-runs {differential_runs!r}. "
+                "Choose an integer between 1 and 10.",
+                style="err",
+            )
+            raise typer.Exit(code=2)
+        overridden = 0
+        for p in probes:
+            if p.differential_runs != differential_runs:
+                p.differential_runs = differential_runs
+                overridden += 1
+        event(
+            "[scan]",
+            f"--differential-runs={differential_runs}: forcing "
+            f"{overridden}/{len(probes)} probe(s) to run {differential_runs} "
+            f"time(s) for variance characterization.",
+            style="scan",
+        )
+
     # Resolve proxy + TLS-verification: CLI flag wins, then YAML config.
     effective_proxy = proxy if proxy is not None else cfg.scan.proxy
     effective_verify_tls = (not insecure) and cfg.scan.verify_tls
@@ -328,6 +378,7 @@ def scan(
         target_client_config=target_config,
         process_mode=process_mode,
         verbose=verbose,
+        skip_follow_ups=no_follow_ups,
     )
     report = runner.run(probes)
 

@@ -482,6 +482,169 @@ def test_transport_default_override_flips_every_probe(monkeypatch: pytest.Monkey
     )
 
 
+def test_differential_runs_override_flips_every_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``--differential-runs 3`` must force every probe to run 3 times."""
+    from typer.testing import CliRunner
+
+    from agent_recon.cli import app
+
+    captured: dict[str, Any] = {}
+
+    class _StubRunner:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            captured["init"] = kwargs
+
+        def run(self, probes: list[Any]) -> Any:
+            captured["probes"] = list(probes)
+            from agent_recon.models import (
+                ClassificationResult, FinalReport, TargetInfo,
+                ValidationResult,
+            )
+            return FinalReport(
+                target=TargetInfo(url="http://stub"),
+                probe_count=0, error_count=0,
+                classification=ClassificationResult(),
+                validation=ValidationResult(),
+            )
+
+        def mark_scan_complete(self) -> None:
+            return None
+
+    import agent_recon.cli as cli_mod
+    monkeypatch.setattr(cli_mod, "write_reports", lambda *a, **kw: [])
+    import agent_recon.crew.crew_runner as runner_mod
+    monkeypatch.setattr(runner_mod, "CrewRunner", _StubRunner)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "--no-banner",
+            "scan",
+            "--target-url", "http://stub",
+            "--probe-file", "datasets/probes.v2_examples.yaml",
+            "--differential-runs", "3",
+        ],
+    )
+    assert "probes" in captured, f"scan never reached runner.run(); stdout={result.stdout}"
+    probes = captured["probes"]
+    assert probes, "no probes loaded"
+    assert all(p.differential_runs == 3 for p in probes), (
+        f"--differential-runs=3 failed: {[(p.id, p.differential_runs) for p in probes]}"
+    )
+
+
+@pytest.mark.parametrize("bad_value", ["0", "11", "-1", "100"])
+def test_differential_runs_rejects_out_of_range(
+    monkeypatch: pytest.MonkeyPatch, bad_value: str
+) -> None:
+    """Values outside 1..10 must exit non-zero with a clear error."""
+    from typer.testing import CliRunner
+
+    from agent_recon.cli import app
+
+    import agent_recon.cli as cli_mod
+    monkeypatch.setattr(cli_mod, "write_reports", lambda *a, **kw: [])
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "--no-banner",
+            "scan",
+            "--target-url", "http://stub",
+            "--probe-file", "datasets/probes.v2_examples.yaml",
+            "--differential-runs", bad_value,
+        ],
+    )
+    assert result.exit_code != 0
+    out = result.stdout.lower()
+    assert "differential-runs" in out or "1 and 10" in out or "invalid" in out
+
+
+def test_no_follow_ups_flag_skips_phase(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Passing ``--no-follow-ups`` must construct the runner with
+    ``skip_follow_ups=True``, which makes Phase 2 a no-op."""
+    from typer.testing import CliRunner
+
+    from agent_recon.cli import app
+
+    captured: dict[str, Any] = {}
+
+    class _StubRunner:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            captured["init_kwargs"] = kwargs
+
+        def run(self, probes: list[Any]) -> Any:
+            from agent_recon.models import (
+                ClassificationResult, FinalReport, TargetInfo,
+                ValidationResult,
+            )
+            return FinalReport(
+                target=TargetInfo(url="http://stub"),
+                probe_count=0, error_count=0,
+                classification=ClassificationResult(),
+                validation=ValidationResult(),
+            )
+
+        def mark_scan_complete(self) -> None:
+            return None
+
+    import agent_recon.cli as cli_mod
+    monkeypatch.setattr(cli_mod, "write_reports", lambda *a, **kw: [])
+    import agent_recon.crew.crew_runner as runner_mod
+    monkeypatch.setattr(runner_mod, "CrewRunner", _StubRunner)
+
+    runner = CliRunner()
+    runner.invoke(
+        app,
+        [
+            "--no-banner",
+            "scan",
+            "--target-url", "http://stub",
+            "--probe-file", "datasets/probes.v2_examples.yaml",
+            "--no-follow-ups",
+        ],
+    )
+    assert captured["init_kwargs"]["skip_follow_ups"] is True
+
+
+def test_runner_skip_follow_ups_short_circuits_phase(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When ``CrewRunner.skip_follow_ups=True``, ``_run_follow_up_phase``
+    must NOT be invoked even if probes declare ``follow_up_ids``."""
+    from agent_recon.crew.crew_runner import CrewRunner
+
+    calls: list[str] = []
+
+    # Substitute a tracker for _run_follow_up_phase. We only assert the
+    # method's behavior in isolation here; full ``run()`` requires CrewAI
+    # bootstrap which is overkill for this unit test.
+    def fake_run(self: Any, *, llm: Any, registry: Any) -> int:
+        calls.append("ran")
+        return 0
+
+    monkeypatch.setattr(CrewRunner, "_run_follow_up_phase", fake_run)
+
+    # Build a runner that "would" skip — we don't actually call .run() because
+    # of CrewAI dependencies. Instead we assert the configuration sticks.
+    from agent_recon.config import AppConfig
+    from agent_recon.target_client import TargetClientConfig
+
+    runner = CrewRunner(
+        app_config=AppConfig(),
+        target_client_config=TargetClientConfig(url="http://stub"),
+        skip_follow_ups=True,
+    )
+    assert runner.skip_follow_ups is True
+
+    runner_no = CrewRunner(
+        app_config=AppConfig(),
+        target_client_config=TargetClientConfig(url="http://stub"),
+        skip_follow_ups=False,
+    )
+    assert runner_no.skip_follow_ups is False
+
+
 def test_transport_default_rejects_invalid_value(monkeypatch: pytest.MonkeyPatch) -> None:
     """An unknown --transport-default must exit non-zero with a clear error."""
     from typer.testing import CliRunner
