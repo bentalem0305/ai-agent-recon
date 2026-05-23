@@ -57,6 +57,9 @@ against a live target* — holds everywhere.
 
 ### Visibility + UX
 
+- New CLI flag **`--transport-default {http|sse}`** flips every probe in
+  the scan to a chosen transport without having to edit each YAML
+  entry. Useful when the target only speaks SSE.
 - Scan progress UI now spans **4 phases**: Reconnaissance, Adaptive
   follow-ups, Analysis, Writing reports. Phase 2 was previously silent
   in v2.0's first cut.

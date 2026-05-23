@@ -409,6 +409,108 @@ def test_run_evaluation_invokes_on_fixture_start(tmp_path: Path) -> None:
     assert calls == [(1, 1, "fx")]
 
 
+# ---------------------------------------------------------------------------
+# --transport-default CLI override
+# ---------------------------------------------------------------------------
+
+def test_transport_default_override_flips_every_probe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Invoking ``scan --transport-default sse`` must force every probe
+    (including ones that didn't declare a transport in YAML) to use SSE."""
+    from typer.testing import CliRunner
+
+    from agent_recon.cli import app
+    from agent_recon.models import TransportKind
+
+    captured: dict[str, Any] = {}
+
+    class _StubRunner:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            captured["init"] = kwargs
+
+        def run(self, probes: list[Any]) -> Any:
+            captured["probes"] = list(probes)
+            from agent_recon.models import (
+                ClassificationResult, FinalReport, TargetInfo,
+                ValidationResult,
+            )
+            return FinalReport(
+                target=TargetInfo(url=kwargs_get("target_url")),
+                probe_count=0, error_count=0,
+                classification=ClassificationResult(),
+                validation=ValidationResult(),
+            )
+
+        def mark_scan_complete(self) -> None:
+            return None
+
+    def kwargs_get(_k: str) -> str:  # pragma: no cover
+        return "http://stub"
+
+    # Patch out the heavy bits we don't want exercised in a unit test.
+    import agent_recon.cli as cli_mod
+    monkeypatch.setattr(cli_mod, "write_reports", lambda *a, **kw: [])
+
+    import agent_recon.crew.crew_runner as runner_mod
+    monkeypatch.setattr(runner_mod, "CrewRunner", _StubRunner)
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "--no-banner",
+            "scan",
+            "--target-url", "http://stub",
+            "--probe-file", "datasets/probes.v2_examples.yaml",
+            "--transport-default", "sse",
+        ],
+    )
+    # Stub may not produce a fully-shaped report; that's fine — we only
+    # care that the override flipped probes BEFORE the runner ran.
+    if result.exit_code != 0:
+        # The stubbed runner isn't a full CrewRunner, so a non-zero exit
+        # is acceptable as long as we successfully captured the probes.
+        pass
+    assert "probes" in captured, (
+        f"scan never reached runner.run(); stderr={result.stdout}"
+    )
+    probes = captured["probes"]
+    assert probes, "no probes loaded"
+    # Every probe must be SSE after the override.
+    assert all(p.transport is TransportKind.sse for p in probes), (
+        f"transport-default sse failed to flip every probe: "
+        f"{[(p.id, p.transport.value) for p in probes]}"
+    )
+
+
+def test_transport_default_rejects_invalid_value(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An unknown --transport-default must exit non-zero with a clear error."""
+    from typer.testing import CliRunner
+
+    from agent_recon.cli import app
+
+    # Don't actually run the crew on this path.
+    import agent_recon.cli as cli_mod
+    monkeypatch.setattr(cli_mod, "write_reports", lambda *a, **kw: [])
+
+    runner = CliRunner()
+    result = runner.invoke(
+        app,
+        [
+            "--no-banner",
+            "scan",
+            "--target-url", "http://stub",
+            "--probe-file", "datasets/probes.v2_examples.yaml",
+            "--transport-default", "carrier-pigeon",
+        ],
+    )
+    assert result.exit_code != 0
+    assert "transport-default" in result.stdout.lower() or "transport-default" in (result.stderr or "").lower()
+
+
+# ---------------------------------------------------------------------------
+# run_evaluation callback edge cases (Task 5)
+# ---------------------------------------------------------------------------
+
 def test_run_evaluation_swallows_callback_errors(tmp_path: Path) -> None:
     """A failing UI callback must NOT abort the eval run."""
     import json as _json

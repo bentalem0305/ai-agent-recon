@@ -1,11 +1,21 @@
 """Typer-based CLI for AI Agent Recon."""
 from __future__ import annotations
 
+import sys
 import typing
 from pathlib import Path
 from typing import Optional
 
 import typer
+
+# Force UTF-8 on stdout/stderr so ``python -m agent_recon.cli --help`` works
+# on Windows cp1252 / cp437 consoles even when the user bypasses the
+# ``ai-agent-recon`` entry point (which goes through ``main.py``'s reconfigure).
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except Exception:  # pragma: no cover - tolerate non-TextIO streams
+        pass
 
 from . import __version__
 from .config import load_config
@@ -143,6 +153,19 @@ def scan(
             "installed on this machine. NEVER use against production targets."
         ),
     ),
+    transport_default: str = typer.Option(
+        "http",
+        "--transport-default",
+        help=(
+            "Default transport for every probe in this scan ('http' or 'sse'). "
+            "Use 'sse' to target Server-Sent-Events streaming endpoints "
+            "(OpenAI-style 'data:' delta streams, [DONE] sentinels) without "
+            "having to set transport: sse on every probe in YAML. Per-probe "
+            "YAML 'transport:' values are honored when this flag is left at "
+            "its default ('http'); passing 'sse' on the CLI forces every "
+            "probe to use SSE for this scan."
+        ),
+    ),
     agentic_probe_budget: Optional[int] = typer.Option(
         None,
         "--agentic-probe-budget",
@@ -168,18 +191,19 @@ def scan(
     """Run a recon scan against the given target AI agent.
 
     The scan runs four phases under the hood:
-      1. Reconnaissance        — agentic probe crew + deterministic safety net.
-      2. Adaptive follow-ups   — LLM picks one pre-approved follow-up ID per
-                                 parent probe that declared ``follow_up_ids``.
-      3. Analysis              — Classifier → Validator → Reporter.
-      4. Writing reports       — JSON, Markdown, HTML.
+      1. Reconnaissance       - agentic probe crew + deterministic safety net.
+      2. Adaptive follow-ups  - LLM picks one pre-approved follow-up ID per
+                                parent probe that declared follow_up_ids.
+      3. Analysis             - Classifier -> Validator -> Reporter.
+      4. Writing reports      - JSON, Markdown, HTML.
 
     Probes are loaded from YAML (--probe-file). v2.0 probes may declare
-    optional fields ``transport: sse`` (streaming target), ``turns: [...]``
+    optional fields: ``transport: sse`` (streaming target), ``turns: [...]``
     (multi-turn conversation), ``differential_runs: N`` (run N times for
     variance), or ``follow_up_ids: [...]`` (adaptive follow-up allow-list).
-    See ``datasets/probes.v2_examples.yaml`` for working examples. All v2
-    fields are optional and default to v1.x single-shot HTTP behavior.
+    Use --transport-default to flip the whole scan to SSE without editing
+    every probe. See ``datasets/probes.v2_examples.yaml`` for examples.
+    All v2 fields are optional and default to v1.x single-shot HTTP.
     """
 
     configure_logging(verbose=verbose)
@@ -226,6 +250,39 @@ def scan(
         raise typer.Exit(code=2)
 
     event("[ok]", f"Loaded {len(probes)} probes from {probe_file}", style="ok")
+
+    # v2.0: --transport-default override.
+    # When the operator passes --transport-default sse, force every probe
+    # to use SSE for this scan (so they don't have to add `transport: sse`
+    # to every YAML entry when their target only speaks SSE). When left
+    # at the default 'http', per-probe YAML `transport:` declarations
+    # are honored as-is.
+    from .models import TransportKind  # local import keeps --help cheap
+
+    transport_default_lc = (transport_default or "http").strip().lower()
+    try:
+        default_kind = TransportKind(transport_default_lc)
+    except ValueError:
+        event(
+            "[err]",
+            f"Invalid --transport-default {transport_default!r}. "
+            f"Choose one of: {[k.value for k in TransportKind]}.",
+            style="err",
+        )
+        raise typer.Exit(code=2)
+
+    if default_kind is not TransportKind.http:
+        overridden = 0
+        for p in probes:
+            if p.transport is not default_kind:
+                p.transport = default_kind
+                overridden += 1
+        event(
+            "[scan]",
+            f"--transport-default={default_kind.value}: forcing "
+            f"{overridden}/{len(probes)} probe(s) to use {default_kind.value.upper()}.",
+            style="scan",
+        )
 
     # Resolve proxy + TLS-verification: CLI flag wins, then YAML config.
     effective_proxy = proxy if proxy is not None else cfg.scan.proxy

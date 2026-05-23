@@ -56,6 +56,8 @@ continue to load and render unchanged.
   deltas, `[DONE]` sentinel) and `turns: [...]` to script a multi-turn
   conversation against the target. Every turn's text is pre-written in
   YAML — the LLM never authors free-form text against a live target.
+  Targeting an entirely-SSE endpoint? Pass `--transport-default sse` to
+  the `scan` command and every probe will use SSE without YAML edits.
 - **B — Adaptive follow-up probes.** A probe can declare
   `follow_up_ids: [...]` — a hand-curated allow-list of probe IDs.
   After the parent probe runs, a selector LLM picks **one** ID from the
