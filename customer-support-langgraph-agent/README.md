@@ -211,7 +211,60 @@ curl -s -X POST http://127.0.0.1:8000/chat \
     "user_id": "user_001",
     "tenant_id": "tenant_a"
   }'
+
+# Streaming endpoint — Server-Sent Events. The reply text arrives as a
+# sequence of `data: {"delta": "..."}` events, followed by an
+# `event: metadata` frame carrying the same fields ChatResponse returns,
+# and finally `data: [DONE]`. Compatible with the recon-tool SSE
+# transport (see below).
+curl -N -X POST http://127.0.0.1:8000/chat/stream \
+  -H 'Content-Type: application/json' \
+  -H 'Accept: text/event-stream' \
+  -d '{
+    "message": "Hi, what is the status of order o-1001?",
+    "session_id": "s1",
+    "user_id": "user_001",
+    "tenant_id": "tenant_a"
+  }'
 ```
+
+## Streaming endpoint (`/chat/stream`)
+
+`POST /chat/stream` accepts the exact same JSON body as `/chat` and
+runs the exact same LangGraph pipeline (guardrails, authorization,
+memory, audit all still fire). The difference is the wire format: the
+final reply is sent back as **Server-Sent Events** (`text/event-stream`).
+
+Event shape:
+
+| Event type | Payload | When |
+|---|---|---|
+| (default) | `{"delta": "<word> "}` | One per word of the reply, ~20 ms apart |
+| `metadata` | `{"session_id": ..., "intent": ..., "tools_used": [...], "requires_escalation": bool, "audit_id": ...}` | Once, after the last delta |
+| (default) | `[DONE]` | Final sentinel — end of stream |
+
+The `event: metadata` frame is a *typed* SSE event, so spec-compliant
+clients that only concatenate plain `data:` events (including the
+ai-agent-recon SSE transport) reassemble the streamed text without
+accidentally including the metadata JSON.
+
+### Pointing ai-agent-recon at the streaming endpoint
+
+The recon tool's v2.0 SSE transport is drop-in compatible. From the
+parent `ai-agent-recon` repo:
+
+```bash
+ai-agent-recon scan \
+  --target-url http://127.0.0.1:8000/chat/stream \
+  --transport-default sse \
+  --body-template '{"message": "{{prompt}}", "user_id": "user_001", "tenant_id": "tenant_a"}' \
+  --probe-file datasets/probes.v2_examples.yaml
+```
+
+`--transport-default sse` flips every probe in the dataset to the SSE
+transport without YAML edits. Multi-turn probes, differential runs,
+and adaptive follow-ups all work over SSE — the transport is just the
+wire format; everything above it is unchanged.
 
 ## Authorization model
 

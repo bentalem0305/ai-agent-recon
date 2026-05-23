@@ -55,6 +55,17 @@ against a live target* — holds everywhere.
   - Six bundled fixtures across recon profiles (basic chatbot, tool-
     enabled, code-execution, memory+RAG, MCP, multi-agent).
 
+### SSE transport hardening
+
+- **Frame-based SSE parsing.** The transport now reads SSE events at
+  the frame level instead of the line level, so spec-compliant typed
+  events (``event: <name>``) are handled correctly. Auxiliary frames
+  such as ``event: metadata`` are skipped — only the default-typed
+  (`message`) data is concatenated into the reassembled text. ``id:``
+  and ``retry:`` fields are also properly ignored. This makes the
+  recon transport drop-in compatible with the bundled SupportMate
+  practice target's new ``/chat/stream`` endpoint.
+
 ### Visibility + UX
 
 - Three new CLI override flags on `scan` so every v2 capability has

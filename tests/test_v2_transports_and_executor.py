@@ -374,6 +374,47 @@ def test_sse_transport_openai_style_json_deltas(monkeypatch: pytest.MonkeyPatch)
     assert "Hi there" in out.raw_response
 
 
+def test_sse_transport_skips_typed_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Typed events (e.g. ``event: metadata``) carry auxiliary payloads
+    that must NOT be concatenated into the reassembled text. This is
+    exactly the shape SupportMate's /chat/stream emits for its
+    metadata frame, and the recon transport must filter it out cleanly."""
+    body = _sse_stream_bytes([
+        'data: {"delta": "Hello "}',
+        "",
+        'data: {"delta": "world"}',
+        "",
+        "event: metadata",
+        'data: {"session_id":"s-x","intent":"greeting"}',
+        "",
+        "data: [DONE]",
+    ])
+    sse = _patched_sse(monkeypatch, body)
+    out = sse.send_prompt("anything")
+    assert out.error is None
+    assert out.raw_response == "Hello world"
+    # Metadata fields must NOT appear anywhere in the reassembled text.
+    assert "session_id" not in out.raw_response
+    assert "intent" not in out.raw_response
+
+
+def test_sse_transport_skips_id_and_retry_fields(monkeypatch: pytest.MonkeyPatch) -> None:
+    """SSE ``id:`` and ``retry:`` fields are server-side hints, never
+    user-visible content. The transport must ignore them."""
+    body = _sse_stream_bytes([
+        "id: abc-123",
+        "retry: 5000",
+        'data: {"delta": "real content"}',
+        "",
+        "data: [DONE]",
+    ])
+    sse = _patched_sse(monkeypatch, body)
+    out = sse.send_prompt("anything")
+    assert out.raw_response == "real content"
+    assert "abc-123" not in out.raw_response
+    assert "5000" not in out.raw_response
+
+
 def test_sse_transport_done_sentinel_stops_consumption(monkeypatch: pytest.MonkeyPatch) -> None:
     body = _sse_stream_bytes([
         "data: A",

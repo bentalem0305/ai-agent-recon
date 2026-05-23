@@ -222,29 +222,64 @@ class SseTransport:
           * ``[DONE]`` sentinels.
           * Plain text or JSON deltas.
         """
+        # Proper SSE parsing is *frame-based*: a frame is one or more
+        # ``field: value`` lines followed by a blank line. The ``event:``
+        # field qualifies the WHOLE frame (typed events), so we cannot
+        # decide whether to keep a ``data:`` payload until we see the
+        # blank-line boundary. We accumulate frame state and only act on
+        # blank lines (or end-of-stream).
         chunks: list[str] = []
+        event_type = "message"     # default per the SSE spec
+        data_lines: list[str] = []
+        done = False
+
+        def _flush_frame() -> bool:
+            """Consume the buffered frame. Returns True if a DONE sentinel
+            was encountered (caller should stop reading)."""
+            if not data_lines:
+                return False
+            if event_type != "message":
+                # Typed event (e.g. ``event: metadata``). The recon
+                # transport's job is to reassemble the streamed *text*,
+                # not auxiliary payloads — drop the frame.
+                return False
+            payload = "\n".join(data_lines)
+            if payload in self._DONE_SENTINELS:
+                return True
+            chunks.append(self._extract_delta(payload))
+            return False
+
         for line in response.iter_lines():
             if not line:
+                # Blank line = end of frame.
+                if _flush_frame():
+                    done = True
+                    break
+                event_type = "message"
+                data_lines = []
                 continue
-            # SSE lines look like ``data: <payload>`` (one or more per
-            # event). We only care about data lines.
             if line.startswith(":"):
-                # comment / heartbeat
+                # Comment / heartbeat — ignored.
                 continue
-            if line.startswith("data:"):
-                payload = line[5:].strip()
+            if line.startswith("event:"):
+                event_type = line[len("event:"):].strip() or "message"
+            elif line.startswith("event"):
+                event_type = line[len("event"):].strip().lstrip(":").strip() or "message"
+            elif line.startswith("data:"):
+                data_lines.append(line[len("data:"):].strip())
             elif line.startswith("data"):
-                payload = line[4:].strip().lstrip(":").strip()
-            else:
-                # Some servers omit the ``data:`` prefix; treat as raw text.
-                payload = line.strip()
-
-            if not payload:
+                data_lines.append(line[len("data"):].strip().lstrip(":").strip())
+            elif line.startswith("id:") or line.startswith("retry:"):
+                # SSE id / retry fields — ignored for text reassembly.
                 continue
-            if payload in self._DONE_SENTINELS:
-                break
+            else:
+                # Lenient: treat unrecognised lines as data so unusual
+                # servers (no ``data:`` prefix) still work like v1.x.
+                data_lines.append(line.strip())
 
-            chunks.append(self._extract_delta(payload))
+        if not done:
+            # Final frame with no trailing blank line.
+            _flush_frame()
 
         return "".join(chunks)
 

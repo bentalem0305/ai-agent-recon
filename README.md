@@ -607,6 +607,23 @@ ai-agent-recon pt-plan \
   --output pt-output/
 ```
 
+#### Or target SupportMate's streaming endpoint (v2.0 SSE)
+
+SupportMate also exposes `POST /chat/stream` that returns the reply as
+Server-Sent Events. Point ai-agent-recon at it with
+`--transport-default sse` to exercise every v2 feature end-to-end
+(multi-turn, differential, adaptive follow-ups) over a real streaming
+target without editing the YAML dataset:
+
+```bash
+ai-agent-recon scan \
+  --target-url http://127.0.0.1:8000/chat/stream \
+  --transport-default sse \
+  --body-template '{"message": "{{prompt}}", "session_id": "recon-s1", "user_id": "user_001", "tenant_id": "tenant_a"}' \
+  --probe-file datasets/probes.v2_examples.yaml \
+  --output-dir reports
+```
+
 #### Learn more about SupportMate
 
 - 📖 [`customer-support-langgraph-agent/README.md`](customer-support-langgraph-agent/README.md) — installation, architecture, authorization model, prompt-injection resistance, audit logging, CLI / API examples.
