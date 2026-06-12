@@ -55,6 +55,26 @@ against a live target* — holds everywhere.
   - Six bundled fixtures across recon profiles (basic chatbot, tool-
     enabled, code-execution, memory+RAG, MCP, multi-agent).
 
+### Probing robustness — pre-flight, auth-stop, rate-limit awareness
+
+- **Pre-flight check.** Before sending the real probes, the tool now
+  makes one lightweight request through the same transport / proxy /
+  auth path and reports the outcome: `✓ Pre-flight OK — target reached,
+  auth accepted` on success. If the target is **unreachable** or
+  rejects auth (**HTTP 401/403**), the scan **stops immediately** with a
+  clear message instead of flooding the operator with dozens of
+  identical failures. Runs on both the LLM and deterministic-only paths.
+- **Mid-scan auth-stop.** If a probe comes back **401/403** during
+  probing (e.g. a token expired partway through), the safety net stops
+  sending further probes, explains why, and lets analysis run on the
+  results gathered so far. Works on both the sequential and threaded
+  (`--threads`) paths.
+- **Rate-limit awareness.** **HTTP 429** responses are detected and
+  surfaced with a clear throttling warning (suggesting a higher
+  `--rate-limit` or fewer `--threads`), and counted in an end-of-scan
+  summary — but they do **not** stop the scan, since 429s are often
+  transient.
+
 ### HTTP/2 support
 
 - The HTTP client now negotiates **HTTP/2** automatically (via ALPN)

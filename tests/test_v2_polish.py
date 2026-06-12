@@ -27,8 +27,12 @@ import pytest
 
 import agent_recon
 from agent_recon.crew.crew_runner import (
+    CrewRunner,
+    _classify_probe_outcome,
     _describe_v2_error_location,
 )
+from agent_recon.config import AppConfig
+from agent_recon.target_client import TargetClientConfig
 from agent_recon.models import (
     DifferentialResult,
     DifferentialRun,
@@ -46,6 +50,148 @@ from agent_recon.tools.target_tools import (
     ProbeRegistry,
     SendControlledPromptTool,
 )
+
+
+# ---------------------------------------------------------------------------
+# Pre-flight check + auth-stop + rate-limit detection
+# ---------------------------------------------------------------------------
+
+def _mk_probe(pid: str) -> Probe:
+    return Probe(
+        id=pid, category="c", probe_type=ProbeType.direct,
+        prompt="hi", goal="g",
+    )
+
+
+def _mk_result(pid: str, *, status: int | None = 200, error: str | None = None) -> ProbeResult:
+    return ProbeResult(
+        probe_id=pid, category="c", probe_type=ProbeType.direct,
+        prompt="hi", http_status=status, error=error, raw_response="x",
+    )
+
+
+class _ResultExecutor:
+    """Injectable executor that returns a crafted result per probe and
+    records which probes it actually executed (so tests can assert the
+    safety net stopped early)."""
+
+    def __init__(self, result_for: Any) -> None:
+        self.result_for = result_for
+        self.executed: list[str] = []
+
+    def execute(self, probe: Probe) -> ProbeResult:
+        self.executed.append(probe.id)
+        return self.result_for(probe)
+
+    def close(self) -> None:
+        return None
+
+
+def test_classify_probe_outcome_buckets() -> None:
+    assert _classify_probe_outcome(_mk_result("P", status=None, error="refused")) == "unreachable"
+    assert _classify_probe_outcome(_mk_result("P", status=401)) == "auth_failure"
+    assert _classify_probe_outcome(_mk_result("P", status=403)) == "auth_failure"
+    assert _classify_probe_outcome(_mk_result("P", status=429)) == "rate_limited"
+    assert _classify_probe_outcome(_mk_result("P", status=200)) == "ok"
+    # A 500 is a per-probe issue, not a scan-wide blocker — bucketed "ok".
+    assert _classify_probe_outcome(_mk_result("P", status=500, error="http_error")) == "ok"
+
+
+def _runner() -> CrewRunner:
+    return CrewRunner(
+        app_config=AppConfig(),
+        target_client_config=TargetClientConfig(url="http://stub"),
+    )
+
+
+def test_preflight_ok_proceeds() -> None:
+    ex = _ResultExecutor(lambda p: _mk_result(p.id, status=200))
+    proceed, outcome = _runner()._preflight_check(ex, [_mk_probe("P0")])
+    assert proceed is True
+    assert outcome == "ok"
+
+
+def test_preflight_auth_failure_stops() -> None:
+    ex = _ResultExecutor(lambda p: _mk_result(p.id, status=401))
+    proceed, outcome = _runner()._preflight_check(ex, [_mk_probe("P0")])
+    assert proceed is False
+    assert outcome == "auth_failure"
+
+
+def test_preflight_unreachable_stops() -> None:
+    ex = _ResultExecutor(
+        lambda p: _mk_result(p.id, status=None, error="connection refused")
+    )
+    proceed, outcome = _runner()._preflight_check(ex, [_mk_probe("P0")])
+    assert proceed is False
+    assert outcome == "unreachable"
+
+
+def test_preflight_rate_limited_warns_but_proceeds() -> None:
+    ex = _ResultExecutor(lambda p: _mk_result(p.id, status=429))
+    proceed, outcome = _runner()._preflight_check(ex, [_mk_probe("P0")])
+    assert proceed is True  # 429 is not a hard blocker
+    assert outcome == "rate_limited"
+
+
+def test_preflight_no_probes_is_noop() -> None:
+    ex = _ResultExecutor(lambda p: _mk_result(p.id))
+    proceed, outcome = _runner()._preflight_check(ex, [])
+    assert proceed is True
+    assert ex.executed == []  # nothing sent
+
+
+def test_safety_net_stops_probing_on_auth_failure() -> None:
+    """A 401/403 mid-scan must halt the safety net — the remaining
+    probes are skipped, not sent."""
+    probes = [_mk_probe(f"P{i}") for i in range(6)]
+    # Every probe would return 401; the first should trip the stop.
+    ex = _ResultExecutor(lambda p: _mk_result(p.id, status=401))
+    registry = ProbeRegistry.from_probes(object(), probes, executor=ex)  # type: ignore[arg-type]
+    cfg = AppConfig()
+    cfg.scan.rate_limit_seconds = 0.0
+    runner = CrewRunner(
+        app_config=cfg, target_client_config=TargetClientConfig(url="http://stub")
+    )
+    runner._run_safety_net(registry)
+    # Only the first probe was actually executed; the rest were skipped.
+    assert len(ex.executed) == 1
+    assert registry.done_count() == 1
+
+
+def test_safety_net_continues_through_rate_limits() -> None:
+    """429s must NOT stop the scan — every probe still runs."""
+    probes = [_mk_probe(f"P{i}") for i in range(5)]
+    ex = _ResultExecutor(lambda p: _mk_result(p.id, status=429))
+    registry = ProbeRegistry.from_probes(object(), probes, executor=ex)  # type: ignore[arg-type]
+    cfg = AppConfig()
+    cfg.scan.rate_limit_seconds = 0.0
+    runner = CrewRunner(
+        app_config=cfg, target_client_config=TargetClientConfig(url="http://stub")
+    )
+    runner._run_safety_net(registry)
+    # All five ran despite throttling.
+    assert len(ex.executed) == 5
+    assert registry.done_count() == 5
+
+
+def test_safety_net_stops_on_auth_failure_under_threads() -> None:
+    """Auth-stop must also work on the parallel path: once a 401 lands,
+    no new probes get submitted (some in-flight may finish)."""
+    probes = [_mk_probe(f"P{i}") for i in range(30)]
+    ex = _ResultExecutor(lambda p: _mk_result(p.id, status=401))
+    registry = ProbeRegistry.from_probes(object(), probes, executor=ex)  # type: ignore[arg-type]
+    cfg = AppConfig()
+    cfg.scan.rate_limit_seconds = 0.0
+    cfg.scan.threads = 5
+    runner = CrewRunner(
+        app_config=cfg, target_client_config=TargetClientConfig(url="http://stub")
+    )
+    runner._run_safety_net(registry)
+    # We can't assert exactly 1 (a few may be in flight), but it must be
+    # far fewer than all 30 — the stop short-circuits submission.
+    assert registry.done_count() < 30
+    assert registry.done_count() >= 1
 
 
 # ---------------------------------------------------------------------------

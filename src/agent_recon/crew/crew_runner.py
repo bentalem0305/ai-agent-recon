@@ -55,6 +55,7 @@ from ..models import (
     FinalReport,
     Probe,
     ProbeResult,
+    ProbeType,
     TargetInfo,
     ValidationResult,
 )
@@ -78,6 +79,42 @@ from .tasks import (
 
 
 log = get_logger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Probe-outcome classification (connectivity / auth / rate-limit detection)
+# ---------------------------------------------------------------------------
+
+# HTTP statuses that mean "the target rejected our credentials" — there's no
+# point continuing the scan, so we stop. 401 = unauthenticated,
+# 403 = authenticated-but-forbidden. Either way the auth context is wrong.
+_AUTH_FAILURE_STATUSES = frozenset({401, 403})
+
+# HTTP statuses that mean "you're going too fast." We surface these loudly
+# but do NOT stop — the operator may have intentionally accepted some
+# throttling, and 429s are often transient.
+_RATE_LIMIT_STATUSES = frozenset({429})
+
+
+def _classify_probe_outcome(result: ProbeResult) -> str:
+    """Bucket a probe result into a coarse outcome for operator messaging.
+
+    Returns one of:
+      * ``"unreachable"`` — a transport-level failure (DNS, connection
+        refused, TLS, timeout). No HTTP status came back at all.
+      * ``"auth_failure"`` — the target answered 401 / 403.
+      * ``"rate_limited"`` — the target answered 429.
+      * ``"ok"`` — anything else (including normal 2xx, and 4xx/5xx that
+        aren't auth/rate-limit, which are per-probe issues not scan-wide
+        blockers).
+    """
+    if result.error and result.http_status is None:
+        return "unreachable"
+    if result.http_status in _AUTH_FAILURE_STATUSES:
+        return "auth_failure"
+    if result.http_status in _RATE_LIMIT_STATUSES:
+        return "rate_limited"
+    return "ok"
 
 
 # ---------------------------------------------------------------------------
@@ -197,6 +234,30 @@ class CrewRunner:
             ),
         )
 
+        # Pre-flight: confirm reachability + auth before sending the real
+        # probes. On a hard blocker (unreachable / 401 / 403) we stop here
+        # rather than flooding the operator with 59 identical failures.
+        proceed, _outcome = self._preflight_check(executor, probes)
+        if not proceed:
+            self._progress.end_phase()
+            self._close_clients()
+            report = self._build_minimal_report(
+                summary=(
+                    "Scan stopped at pre-flight: the target was unreachable or "
+                    "rejected the supplied authentication. No probes were sent. "
+                    "See the scan log for the exact HTTP status / error."
+                ),
+                recommendations=[
+                    "We recommend verifying the target URL, proxy, and TLS "
+                    "settings (use --insecure only with an intercepting proxy).",
+                    "We recommend confirming the auth header / cookie is present "
+                    "and has not expired, then re-running the scan.",
+                ],
+            )
+            # Skip the remaining phases; jump straight to writing the report.
+            self._progress.start_phase(4, "Writing reports")
+            return report
+
         self._run_probe_crew(llm=llm, toolset=toolset)
         self._run_safety_net(toolset.registry)
 
@@ -303,6 +364,114 @@ class CrewRunner:
         )
 
     # ------------------------------------------------------------------
+    # Pre-flight connectivity + auth check
+    # ------------------------------------------------------------------
+    def _preflight_check(
+        self, executor: "ProbeExecutor", probes: list[Probe]
+    ) -> tuple[bool, str]:
+        """Send ONE lightweight request before probing to confirm the
+        target is reachable and the auth context is accepted.
+
+        Returns ``(proceed, outcome)``. ``proceed`` is False only for a
+        hard blocker (unreachable target or rejected credentials) — in
+        that case the caller should stop without sending the real probes,
+        sparing the operator a screenful of identical failures.
+
+        The ping goes through the same executor / transport / proxy / auth
+        path the real probes use (it borrows the first probe's transport,
+        which ``--transport-default`` has already normalised), so it
+        genuinely exercises the auth headers and the SSE/HTTP wire format.
+        It is a synthetic request — never recorded as a probe result.
+        """
+        if not probes:
+            return True, "ok"
+
+        transport_kind = probes[0].transport
+        url = self.target_client_config.url
+        event(
+            "[scan]",
+            f"Pre-flight: checking target reachability + auth "
+            f"({transport_kind.value.upper()}) → {url} ...",
+            style="scan",
+        )
+
+        ping = Probe(
+            id="__preflight__",
+            category="__preflight__",
+            probe_type=ProbeType.direct,
+            prompt="Hello — are you available?",
+            goal="connectivity + auth pre-flight check",
+            transport=transport_kind,
+        )
+        result = executor.execute(ping)
+        outcome = _classify_probe_outcome(result)
+
+        if outcome == "unreachable":
+            event(
+                "[err]",
+                f"✗ Pre-flight FAILED — could not reach the target: "
+                f"{result.error}. Check the URL, proxy, --insecure, and "
+                f"network. Aborting scan — no probes were sent.",
+                style="err",
+            )
+            return False, outcome
+        if outcome == "auth_failure":
+            event(
+                "[err]",
+                f"✗ Pre-flight FAILED — target returned HTTP "
+                f"{result.http_status} (authentication/authorization "
+                f"rejected). Check --auth-header / --headers (and that the "
+                f"token/cookie hasn't expired). Aborting scan — no probes "
+                f"were sent.",
+                style="err",
+            )
+            return False, outcome
+        if outcome == "rate_limited":
+            event(
+                "[warn]",
+                f"⚠  Pre-flight — target returned HTTP {result.http_status} "
+                f"(rate limited) on the very first request. The target is "
+                f"throttling; consider a higher --rate-limit or fewer "
+                f"--threads. Proceeding anyway.",
+                style="warn",
+            )
+            return True, outcome
+
+        event(
+            "[ok]",
+            f"✓ Pre-flight OK — target reached, auth accepted "
+            f"(HTTP {result.http_status}). Beginning probing.",
+            style="ok",
+        )
+        return True, outcome
+
+    def _build_minimal_report(
+        self,
+        *,
+        summary: str,
+        recommendations: list[str],
+        probe_results: list[ProbeResult] | None = None,
+    ) -> FinalReport:
+        """Build a tiny FinalReport for an aborted/short-circuited scan."""
+        results = probe_results or []
+        return FinalReport(
+            target=TargetInfo(
+                url=self.target_client_config.url,
+                method=self.target_client_config.method,
+                response_path=self.target_client_config.response_path,
+            ),
+            probe_count=len(results),
+            error_count=sum(1 for r in results if r.error),
+            summary=summary,
+            probe_results=results,
+            classification=ClassificationResult(
+                uncertainty_notes=[summary],
+            ),
+            validation=ValidationResult(confidence_summary=summary),
+            recommendations=recommendations,
+        )
+
+    # ------------------------------------------------------------------
     # End-of-scan v2 activity summary
     # ------------------------------------------------------------------
     def _log_v2_activity_summary(self, probe_results: list[ProbeResult]) -> None:
@@ -391,7 +560,27 @@ class CrewRunner:
         was unavailable. The raw probe results are still captured so a
         human reviewer can inspect what the target said.
         """
-        toolset = build_probe_toolset(self.target_client, probes)
+        executor = self._build_executor()
+        self._executor = executor
+        toolset = build_probe_toolset(self.target_client, probes, executor=executor)
+
+        # Pre-flight before any deterministic probing too — same hard-stop
+        # on unreachable / auth-rejected targets.
+        proceed, _outcome = self._preflight_check(executor, probes)
+        if not proceed:
+            self._close_clients()
+            event("[scan]", "Scan stopped at pre-flight (deterministic-only).", style="err")
+            return self._build_minimal_report(
+                summary=(
+                    "Scan stopped at pre-flight: the target was unreachable or "
+                    "rejected the supplied authentication. No probes were sent."
+                ),
+                recommendations=[
+                    "We recommend verifying the target URL / proxy / auth "
+                    "header, then re-running the scan.",
+                ],
+            )
+
         self._run_safety_net(toolset.registry)
 
         probe_results = toolset.registry.ordered_results()
@@ -633,10 +822,18 @@ class CrewRunner:
         threads = max(1, int(getattr(self.app_config.scan, "threads", 1)))
         # Cap by len(pending) — no point spinning up more workers than work.
         threads = min(threads, len(pending))
-        error_count = threading.Lock()
+        state_lock = threading.Lock()
         error_count_so_far = [0]
+        rate_limited_count = [0]
+        # Set the moment a probe comes back 401/403 — workers see it and
+        # short-circuit so we stop hammering a target that's rejecting auth.
+        stop_event = threading.Event()
+        stop_announced = [False]
 
         def _run_one(i: int, pid: str) -> None:
+            # Auth already failed on an earlier probe → skip without sending.
+            if stop_event.is_set():
+                return
             probe = registry.probes[pid]
             try:
                 result = registry.run_probe(pid)
@@ -650,9 +847,43 @@ class CrewRunner:
                     error=f"unhandled_error: {e!r}",
                 )
                 registry.results[pid] = result
+
+            outcome = _classify_probe_outcome(result)
+
+            # --- Auth failure mid-scan: stop the whole safety net. ---
+            if outcome == "auth_failure":
+                stop_event.set()
+                with state_lock:
+                    first = not stop_announced[0]
+                    stop_announced[0] = True
+                if first:
+                    event(
+                        "[safety-net]",
+                        f"✗ {probe.id} returned HTTP {result.http_status} "
+                        f"(authentication/authorization rejected) mid-scan. "
+                        f"Stopping probing — the auth context likely expired "
+                        f"or changed. Re-run with fresh credentials.",
+                        style="err",
+                    )
+                return
+
+            # --- Rate limited: surface loudly, but keep going. ---
+            if outcome == "rate_limited":
+                with state_lock:
+                    rate_limited_count[0] += 1
+                    first_429 = rate_limited_count[0] == 1
+                if first_429:
+                    event(
+                        "[safety-net]",
+                        f"⚠  {probe.id} returned HTTP {result.http_status} "
+                        f"(rate limited). The target is throttling — consider a "
+                        f"higher --rate-limit or fewer --threads. Continuing.",
+                        style="warn",
+                    )
+
             # Surface errors only - successes are tracked by the bar.
             if result.error:
-                with error_count:
+                with state_lock:
                     error_count_so_far[0] += 1
                 where = _describe_v2_error_location(result)
                 where_suffix = f" ({where})" if where else ""
@@ -677,6 +908,8 @@ class CrewRunner:
                     for i, pid in enumerate(pending, start=1):
                         _run_one(i, pid)
                         advance()
+                        if stop_event.is_set():
+                            break
                         if rate_limit > 0 and i < len(pending):
                             time.sleep(rate_limit)
                 else:
@@ -693,6 +926,7 @@ class CrewRunner:
                         rate_limit=rate_limit,
                         run_one=_run_one,
                         advance=advance,
+                        stop_event=stop_event,
                     )
             progress.agent_done(
                 "Safety net",
@@ -709,6 +943,8 @@ class CrewRunner:
             if threads <= 1:
                 for i, pid in enumerate(pending, start=1):
                     _run_one(i, pid)
+                    if stop_event.is_set():
+                        break
                     if rate_limit > 0 and i < len(pending):
                         time.sleep(rate_limit)
             else:
@@ -718,7 +954,28 @@ class CrewRunner:
                     rate_limit=rate_limit,
                     run_one=_run_one,
                     advance=lambda: None,
+                    stop_event=stop_event,
                 )
+
+        # ----- Post-run summaries for the auth-stop / throttle cases. -----
+        if stop_event.is_set():
+            sent = registry.done_count()
+            event(
+                "[safety-net]",
+                f"Probing stopped early after an authentication failure. "
+                f"{sent} probe response(s) were collected before the stop; "
+                f"analysis will run on those. Re-run with valid credentials "
+                f"for a complete scan.",
+                style="warn",
+            )
+        if rate_limited_count[0] > 0:
+            event(
+                "[safety-net]",
+                f"{rate_limited_count[0]} probe(s) were rate-limited (HTTP 429) "
+                f"during this scan. Their results may be incomplete — consider "
+                f"re-running affected probes with a higher --rate-limit.",
+                style="warn",
+            )
 
     def _run_safety_net_threaded(
         self,
@@ -728,6 +985,7 @@ class CrewRunner:
         rate_limit: float,
         run_one: Any,
         advance: Any,
+        stop_event: "threading.Event | None" = None,
     ) -> None:
         """Run pending probes concurrently in a thread pool.
 
@@ -741,6 +999,10 @@ class CrewRunner:
         throttle concurrent load on a fragile target — e.g.
         ``--threads 5 --rate-limit 0.2`` caps starts at ~5/sec with
         up to 5 in flight at any moment.
+
+        ``stop_event`` lets the caller halt early (e.g. on an auth
+        failure): once set, we stop submitting new work, and already
+        queued workers short-circuit on their own check.
 
         Failures inside a worker are logged but never propagated; one
         bad probe must not abort a 60-probe scan.
@@ -759,6 +1021,9 @@ class CrewRunner:
         ) as pool:
             futures = []
             for i, pid in enumerate(pending, start=1):
+                # Stop submitting once an auth failure tripped the stop.
+                if stop_event is not None and stop_event.is_set():
+                    break
                 futures.append(pool.submit(run_one, i, pid))
                 # Inter-submission throttle so concurrent load on the
                 # target stays bounded even at high --threads.
