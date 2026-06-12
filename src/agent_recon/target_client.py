@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import copy
 import json
+import threading
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -150,6 +151,44 @@ class TargetClient:
             self._headers.update(config.headers)
         if config.body_template is None:
             self.config.body_template = {"message": "{{prompt}}"}
+        # One persistent, connection-pooled httpx.Client reused across every
+        # probe (and every retry). Creating a fresh client per send forces a
+        # new TCP + TLS handshake each time — the single biggest avoidable
+        # cost on a ~60-probe HTTPS scan. httpx.Client is thread-safe, so the
+        # parallel safety net (``--threads N``) shares this one pool too.
+        # Built lazily so constructing a TargetClient never opens a socket.
+        self._client: httpx.Client | None = None
+        self._client_lock = threading.Lock()
+
+    def _build_client(self) -> httpx.Client:
+        # httpx.Client kwargs — proxy + verify only included when set,
+        # so unaffected setups don't see any behavioural change.
+        client_kwargs: dict[str, Any] = {"timeout": self.config.timeout}
+        if self.config.proxy:
+            client_kwargs["proxy"] = self.config.proxy
+        if self.config.verify_tls is False:
+            client_kwargs["verify"] = False
+        return httpx.Client(**client_kwargs)
+
+    def _get_client(self) -> httpx.Client:
+        """Return the shared client, building it on first use (thread-safe)."""
+        client = self._client
+        if client is not None and not client.is_closed:
+            return client
+        with self._client_lock:
+            if self._client is None or self._client.is_closed:
+                self._client = self._build_client()
+            return self._client
+
+    def close(self) -> None:
+        """Release the pooled connections. Idempotent."""
+        with self._client_lock:
+            client, self._client = self._client, None
+        if client is not None:
+            try:
+                client.close()
+            except Exception:  # pragma: no cover - defensive
+                pass
 
     # ------------------------------------------------------------------
     # Send
@@ -170,29 +209,24 @@ class TargetClient:
         attempts = max(1, self.config.max_retries + 1)
         last_exc: Exception | None = None
 
-        # httpx.Client kwargs — proxy + verify only included when set,
-        # so unaffected setups don't see any behavioural change.
-        client_kwargs: dict[str, Any] = {"timeout": self.config.timeout}
-        if self.config.proxy:
-            client_kwargs["proxy"] = self.config.proxy
-        if self.config.verify_tls is False:
-            client_kwargs["verify"] = False
+        # Reuse the pooled client so keep-alive connections are reused across
+        # probes and retries instead of paying a handshake every time.
+        client = self._get_client()
 
         for attempt in range(attempts):
             start = time.perf_counter()
             try:
-                with httpx.Client(**client_kwargs) as client:
-                    if method == "GET":
-                        # For GET, place rendered body fields in query params if any.
-                        params = body if isinstance(body, dict) else None
-                        response = client.get(self.config.url, headers=self._headers, params=params)
-                    else:
-                        response = client.request(
-                            method,
-                            self.config.url,
-                            headers=self._headers,
-                            json=body,
-                        )
+                if method == "GET":
+                    # For GET, place rendered body fields in query params if any.
+                    params = body if isinstance(body, dict) else None
+                    response = client.get(self.config.url, headers=self._headers, params=params)
+                else:
+                    response = client.request(
+                        method,
+                        self.config.url,
+                        headers=self._headers,
+                        json=body,
+                    )
                 latency_ms = (time.perf_counter() - start) * 1000.0
                 result.http_status = response.status_code
                 result.latency_ms = round(latency_ms, 2)

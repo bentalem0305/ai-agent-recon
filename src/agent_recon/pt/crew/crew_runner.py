@@ -35,7 +35,7 @@ except Exception:  # pragma: no cover
 
 from ...config import AppConfig
 from ...crew.agents import build_llm
-from ...utils.logging import event, get_logger
+from ...utils.logging import console, event, get_logger
 from ..attack_vectors import (
     SAFE_COMMANDS,
     SAFE_TOKEN,
@@ -174,8 +174,16 @@ def run_pt_crew(recon: NormalizedRecon, app_config: AppConfig) -> PTCrewResult:
     tracker.start("OWASP Mapper")
     event("[pt-mapper]", "Task started: classify ASI01..ASI10 applicability.", style="probe")
 
+    # Show a live spinner while the crew runs. Each task is a single LLM
+    # call we just wait on, so without this the terminal goes silent for
+    # the whole Mapper→Vectors→Plan sequence. The per-task callbacks still
+    # print their completion lines above the spinner as each phase ends.
     try:
-        crew.kickoff(inputs=inputs)
+        with console.status(
+            "[bold cyan]PT crew thinking (Mapper → Vectors → Plan Lead)…",
+            spinner="dots",
+        ):
+            crew.kickoff(inputs=inputs)
     except Exception as e:
         log.exception("PT crew kickoff failed: %s", e)
         event("[pt-crew]", f"Crew kickoff failed ({e!r}); falling back.", style="warn")

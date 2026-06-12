@@ -13,6 +13,22 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
+def _tool_version() -> str:
+    """Resolve the package version lazily.
+
+    Imported inside the function (not at module top) to avoid a circular
+    import: ``agent_recon.__init__`` imports this module, so it isn't fully
+    initialized while ``models`` is first being imported. By the time a
+    :class:`FinalReport` is actually constructed the package is loaded.
+    """
+    try:
+        from . import __version__
+
+        return __version__
+    except Exception:  # pragma: no cover - defensive
+        return "0.0.0"
+
+
 # ---------------------------------------------------------------------------
 # Enums / vocabularies
 # ---------------------------------------------------------------------------
@@ -340,7 +356,7 @@ class FinalReport(BaseModel):
 
     target: TargetInfo
     scan_time: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
-    tool_version: str = "1.0.0"
+    tool_version: str = Field(default_factory=lambda: _tool_version())
     probe_count: int = 0
     error_count: int = 0
     summary: str = ""

@@ -183,6 +183,7 @@ class CrewRunner:
         # phase share one cached transport pool, and so the verbose
         # per-turn / per-run event callback flows through them both.
         executor = self._build_executor()
+        self._executor = executor
         toolset = build_probe_toolset(self.target_client, probes, executor=executor)
         llm = build_llm(self.app_config.llm)
 
@@ -347,11 +348,32 @@ class CrewRunner:
     def mark_scan_complete(self) -> None:
         """Called by the CLI after report files are written, to close
         the final phase (Writing reports) and print the scan-complete banner."""
+        self._close_clients()
         if hasattr(self, "_progress"):
             self._progress.end_phase()
             self._progress.scan_complete()
         else:
             event("[scan]", "Scan complete.", style="ok")
+
+    def _close_clients(self) -> None:
+        """Release pooled HTTP connections once probing is done. Idempotent.
+
+        Closes the shared :class:`ProbeExecutor` (which closes its cached
+        transports) and the underlying :class:`TargetClient` pool. Both
+        ultimately release the same connection pool, so double-closing is
+        harmless — we do both so the deterministic-only path (which builds
+        its own executor lazily inside the registry) is covered too.
+        """
+        ex = getattr(self, "_executor", None)
+        if ex is not None:
+            try:
+                ex.close()
+            except Exception:  # pragma: no cover - defensive
+                pass
+        try:
+            self.target_client.close()
+        except Exception:  # pragma: no cover - defensive
+            pass
 
     # ------------------------------------------------------------------
     # Deterministic-only fallback (when no LLM credentials are configured)
@@ -853,7 +875,11 @@ class CrewRunner:
     ) -> tuple[ClassificationResult, ValidationResult, str, list[str]]:
         """Run Classifier -> Validator -> Reporter as a CrewAI crew."""
 
-        event("[scan]", "Phase 3: agentic analysis...", style="scan")
+        # NOTE: the Phase 3 banner is already printed by the caller via
+        # ScanProgress.start_phase(3, ...); we don't repeat a "Phase 3"
+        # line here (it printed a second, differently-worded banner that
+        # made the log look like two phases). The agent_start() line below
+        # and the evidence-size line are the operator-facing markers.
 
         # Build the probe-results payload FIRST so we can pre-substitute
         # it into the task descriptions ourselves. We don't rely on

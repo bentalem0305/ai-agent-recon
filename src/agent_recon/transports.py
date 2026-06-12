@@ -117,9 +117,9 @@ class HttpTransport:
         )
 
     def close(self) -> None:
-        # TargetClient creates a fresh httpx.Client per send; nothing
-        # persistent to release.
-        return None
+        # TargetClient holds a persistent, connection-pooled httpx.Client;
+        # release it so sockets don't linger after the scan.
+        self._client.close()
 
 
 # ---------------------------------------------------------------------------
