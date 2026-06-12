@@ -137,6 +137,56 @@ class TargetClientConfig:
     verify_tls: bool = True
 
 
+_HTTP2_AVAILABLE: bool | None = None
+
+
+def http2_supported() -> bool:
+    """Return True if the optional ``h2`` package is importable.
+
+    httpx only negotiates HTTP/2 when built with ``http2=True`` AND the
+    ``h2`` package is installed. We probe for it once and cache the
+    result. When ``h2`` is absent we fall back to HTTP/1.1-only — the
+    pre-v2 behaviour — so the tool never crashes for lack of an optional
+    dependency.
+    """
+    global _HTTP2_AVAILABLE
+    if _HTTP2_AVAILABLE is None:
+        try:
+            import h2  # noqa: F401
+
+            _HTTP2_AVAILABLE = True
+        except Exception:  # pragma: no cover - import-time only
+            _HTTP2_AVAILABLE = False
+    return _HTTP2_AVAILABLE
+
+
+def build_client_kwargs(config: TargetClientConfig) -> dict[str, Any]:
+    """Build the kwargs shared by every httpx.Client the tool creates.
+
+    Centralised so the plain-HTTP path (:class:`TargetClient`) and the
+    streaming path (:class:`agent_recon.transports.SseTransport`) stay
+    in lock-step on timeout, proxy, TLS-verify, and HTTP/2 negotiation.
+
+    ``http2`` is enabled whenever the ``h2`` package is available. This
+    is safe for HTTP/1.1-only targets: httpx uses ALPN to negotiate the
+    highest protocol the server offers and transparently falls back to
+    HTTP/1.1. It fixes targets (and intercepting proxies) that respond
+    over HTTP/2 — without it, the HTTP/1.1 parser rejects an
+    ``HTTP/2 200 OK`` status line as "illegal status line".
+    """
+    kwargs: dict[str, Any] = {
+        "timeout": config.timeout,
+        "http2": http2_supported(),
+    }
+    # proxy + verify only included when set, so unaffected setups don't
+    # see any behavioural change.
+    if config.proxy:
+        kwargs["proxy"] = config.proxy
+    if config.verify_tls is False:
+        kwargs["verify"] = False
+    return kwargs
+
+
 class TargetClient:
     """Sends controlled prompts to a target AI agent endpoint.
 
@@ -161,14 +211,9 @@ class TargetClient:
         self._client_lock = threading.Lock()
 
     def _build_client(self) -> httpx.Client:
-        # httpx.Client kwargs — proxy + verify only included when set,
-        # so unaffected setups don't see any behavioural change.
-        client_kwargs: dict[str, Any] = {"timeout": self.config.timeout}
-        if self.config.proxy:
-            client_kwargs["proxy"] = self.config.proxy
-        if self.config.verify_tls is False:
-            client_kwargs["verify"] = False
-        return httpx.Client(**client_kwargs)
+        # Shared kwargs (timeout / proxy / verify / http2). See
+        # build_client_kwargs for why HTTP/2 is enabled by default.
+        return httpx.Client(**build_client_kwargs(self.config))
 
     def _get_client(self) -> httpx.Client:
         """Return the shared client, building it on first use (thread-safe)."""

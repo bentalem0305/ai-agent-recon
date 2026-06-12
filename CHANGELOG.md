@@ -55,6 +55,21 @@ against a live target* — holds everywhere.
   - Six bundled fixtures across recon profiles (basic chatbot, tool-
     enabled, code-execution, memory+RAG, MCP, multi-agent).
 
+### HTTP/2 support
+
+- The HTTP client now negotiates **HTTP/2** automatically (via ALPN)
+  whenever the optional `h2` package is available — now a declared
+  dependency through `httpx[http2]`. Both the plain-HTTP path
+  (`TargetClient`) and the streaming path (`SseTransport`) route
+  through one shared `build_client_kwargs()` helper, so the protocol
+  choice stays consistent.
+- This fixes targets and intercepting proxies that answer over HTTP/2
+  (e.g. anything behind Cloudflare). Previously the HTTP/1.1-only
+  parser rejected an `HTTP/2 200 OK` status line with
+  `illegal status line` and every probe failed. HTTP/1.1 targets are
+  unaffected — httpx transparently falls back. If `h2` is somehow
+  absent the tool degrades to HTTP/1.1 rather than crashing.
+
 ### SSE transport hardening
 
 - **Frame-based SSE parsing.** The transport now reads SSE events at

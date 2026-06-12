@@ -433,6 +433,77 @@ def test_sse_transport_done_sentinel_stops_consumption(monkeypatch: pytest.Monke
 # build_transport factory
 # ---------------------------------------------------------------------------
 
+# ---------------------------------------------------------------------------
+# HTTP/2 support (Fix C — targets / proxies that answer over HTTP/2)
+# ---------------------------------------------------------------------------
+
+def test_http2_supported_true_when_h2_installed() -> None:
+    """h2 is a declared dependency (httpx[http2]); it must be importable."""
+    from agent_recon.target_client import http2_supported
+
+    assert http2_supported() is True
+
+
+def test_build_client_kwargs_enables_http2() -> None:
+    from agent_recon.target_client import build_client_kwargs
+
+    kw = build_client_kwargs(TargetClientConfig(url="https://x"))
+    assert kw["http2"] is True
+    assert kw["timeout"] == 30.0
+    # proxy / verify omitted unless set.
+    assert "proxy" not in kw
+    assert "verify" not in kw
+
+
+def test_build_client_kwargs_includes_proxy_and_verify_when_set() -> None:
+    from agent_recon.target_client import build_client_kwargs
+
+    kw = build_client_kwargs(
+        TargetClientConfig(
+            url="https://x",
+            proxy="http://127.0.0.1:8080",
+            verify_tls=False,
+        )
+    )
+    assert kw["proxy"] == "http://127.0.0.1:8080"
+    assert kw["verify"] is False
+    assert kw["http2"] is True
+
+
+def test_build_client_kwargs_falls_back_to_http1_when_h2_absent(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the optional h2 package is missing, http2 must be False — the
+    tool degrades to HTTP/1.1 rather than crashing."""
+    import agent_recon.target_client as tc
+
+    monkeypatch.setattr(tc, "http2_supported", lambda: False)
+    kw = tc.build_client_kwargs(TargetClientConfig(url="https://x"))
+    assert kw["http2"] is False
+
+
+def test_real_httpx_client_builds_with_http2_kwargs() -> None:
+    """The kwargs we produce must actually construct a live httpx.Client
+    (i.e. http2=True is accepted because h2 is installed)."""
+    from agent_recon.target_client import build_client_kwargs
+
+    client = httpx.Client(**build_client_kwargs(TargetClientConfig(url="https://x")))
+    try:
+        assert client is not None
+    finally:
+        client.close()
+
+
+def test_http_and_sse_share_the_same_client_kwargs_helper() -> None:
+    """Regression guard: both transports must route through
+    build_client_kwargs so HTTP/2 (and proxy/verify) stay consistent."""
+    import agent_recon.transports as transports_mod
+    import agent_recon.target_client as tc_mod
+
+    # SseTransport imports the shared helper by name.
+    assert transports_mod.build_client_kwargs is tc_mod.build_client_kwargs
+
+
 def test_build_transport_picks_kind() -> None:
     tc = TargetClient(TargetClientConfig(url="http://x"))
     h = build_transport(

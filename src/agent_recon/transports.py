@@ -39,6 +39,7 @@ from .target_client import (
     TargetClientConfig,
     _render_body,
     _try_default_extract,
+    build_client_kwargs,
     extract_by_path,
 )
 
@@ -176,11 +177,12 @@ class SseTransport:
                 sorted(body.keys()),
             )
 
-        client_kwargs: dict[str, Any] = {"timeout": self.config.timeout}
-        if self.config.proxy:
-            client_kwargs["proxy"] = self.config.proxy
-        if self.config.verify_tls is False:
-            client_kwargs["verify"] = False
+        # Shared kwargs (timeout / proxy / verify / http2) — same helper
+        # the plain-HTTP path uses, so HTTP/2 negotiation is consistent
+        # across both transports. Critical for SSE: many streaming
+        # gateways (e.g. Cloudflare) answer over HTTP/2, which an
+        # HTTP/1.1-only client rejects as an "illegal status line".
+        client_kwargs: dict[str, Any] = build_client_kwargs(self.config)
 
         start = time.perf_counter()
         try:
